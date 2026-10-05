@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import task_card with context %}
+{% block title %}Sebastian · Tasks{% endblock %}
+{% block content %}
+<h1>Tasks</h1>
+<div class="tabs">
+  {% for s in statuses %}<a class="{{ 'on' if s == status }}" href="/tasks?status={{ s }}&q={{ q|urlencode }}{% if series_id %}&series_id={{ series_id }}{% endif %}">{{ s }}</a>{% endfor %}
+</div>
+<form method="get" class="inline" style="margin-bottom:12px">
+  <input type="hidden" name="status" value="{{ status }}">
+  {% if series_id %}<input type="hidden" name="series_id" value="{{ series_id }}">{% endif %}
+  <input name="q" value="{{ q }}" placeholder="search title"><button>Search</button>
+</form>
+{% for t in tasks %}{{ task_card(t, '/tasks?status=' ~ status) }}{% else %}<p class="empty">No tasks here.</p>{% endfor %}
+{% endblock %}

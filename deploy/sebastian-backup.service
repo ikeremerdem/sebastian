@@ -1,0 +1,14 @@
+[Unit]
+Description=Sebastian database backup
+
+[Service]
+Type=oneshot
+User=sebastian
+Group=sebastian
+WorkingDirectory=/opt/sebastian
+EnvironmentFile=/etc/sebastian/env
+ExecStart=/opt/sebastian/.venv/bin/sebastian backup --to /var/lib/sebastian/backups --keep 30
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sebastian
+PrivateTmp=true

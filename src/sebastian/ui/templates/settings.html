@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hidden with context %}
+{% block title %}Sebastian · Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" action="/settings" class="card">{{ hidden('/settings') }}
+  <div class="grid">
+    <label class="f">Timezone (IANA)<input name="timezone" value="{{ eff.timezone }}"></label>
+    <label class="f">Default nag interval (min)<input name="default_nag_interval_min" value="{{ eff.default_nag_interval_min }}" inputmode="numeric"></label>
+    <label class="f">Quiet hours (local, or none)<input name="quiet_hours" value="{{ eff.quiet_hours }}"></label>
+  </div>
+  <p class="muted small">Nothing is returned for nagging during quiet hours; it resumes when they end. Per-task overrides are possible.</p>
+  <p><button class="primary">Save</button></p>
+</form>
+{% endblock %}

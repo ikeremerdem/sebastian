@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import task_card, hidden with context %}
+{% block content %}
+<h1>Today <span class="muted small">{{ d.date }} · {{ d.timezone }}</span></h1>
+
+{% set titles = {'overdue': 'Overdue', 'today': 'Due today', 'snoozed': 'Snoozed (will resume)', 'upcoming': 'Coming up'} %}
+{% for key in ['overdue', 'today', 'snoozed', 'upcoming'] %}
+  {% if sections[key] %}<h2>{{ titles[key] }}</h2>
+    {% for t in sections[key] %}{{ task_card(t, '/') }}{% endfor %}
+  {% endif %}
+{% endfor %}
+{% if not (sections.overdue or sections.today or sections.snoozed or sections.upcoming) %}
+  <p class="empty">Nothing needs your attention. Well done.</p>
+{% endif %}
+
+<h2>Quick log</h2>
+<div class="card">
+  <div class="actions" style="margin-top:0">
+  {% for c in quick_cats %}
+    <form method="post" action="/quick/entry">{{ hidden('/') }}<input type="hidden" name="category" value="{{ c.name }}">
+      <button title="{{ c.description }}">+ {{ c.name }}</button></form>
+  {% endfor %}
+  {% if not quick_cats %}<span class="muted small">Create a category (e.g. Public Transport) to get one-tap logging.</span>{% endif %}
+  </div>
+  <form method="post" action="/quick/entry" class="inline" style="margin-top:10px">{{ hidden('/') }}
+    <input type="hidden" name="category" value="Note"><input name="text" placeholder="Quick note" size="40" required>
+    <button>Save note</button></form>
+</div>
+
+<h2>Add a task</h2>
+<form method="post" action="/quick/task" class="card">{{ hidden('/') }}
+  <div class="grid">
+    <label class="f">Title<input name="title" required></label>
+    <label class="f">Due (blank = now)<input type="datetime-local" name="due"></label>
+    <label class="f">Nag every (min, blank = {{ eff.default_nag_interval_min }})<input name="nag_interval_min" inputmode="numeric"></label>
+  </div>
+  <label class="f" style="margin-top:8px">Note<input name="note"></label>
+  <p><button class="primary">Add task</button></p>
+</form>
+{% endblock %}

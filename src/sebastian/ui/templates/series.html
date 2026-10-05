@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hidden with context %}
+{% block title %}Sebastian · Recurring{% endblock %}
+{% block content %}
+<h1>Recurring tasks</h1>
+{% for s in series %}
+<div class="card">
+  <div class="row"><span class="title grow"><a href="/series/{{ s.id }}">{{ s.title }}</a></span>
+    {% if not s.active %}<span class="chip">archived</span>{% endif %}</div>
+  <div class="small muted"><code>{{ s.rrule }}</code> at {{ s.due_time }} ({{ s.tz }}) · nag every {{ s.effective_nag_interval_min }} min</div>
+  {% if s.note %}<div class="small">{{ s.note }}</div>{% endif %}
+</div>
+{% else %}<p class="empty">No recurring tasks yet.</p>{% endfor %}
+
+<h2>New recurring task</h2>
+<form method="post" action="/series/new" class="card">{{ hidden('/series') }}
+  <div class="grid">
+    <label class="f">Title<input name="title" required placeholder="Collect rent from tenant"></label>
+    <label class="f">Repeat rule (iCalendar RRULE)<input name="rrule" required value="FREQ=MONTHLY;BYMONTHDAY=5"></label>
+    <label class="f">Due time ({{ eff.timezone }})<input name="due_time" value="09:00" pattern="[0-2][0-9]:[0-5][0-9]"></label>
+    <label class="f">Starting<input type="date" name="dtstart" value="{{ today }}"></label>
+    <label class="f">Nag every (min, blank = {{ eff.default_nag_interval_min }})<input name="nag_interval_min" inputmode="numeric"></label>
+    <label class="f">Quiet hours (blank = global)<input name="quiet_hours" placeholder="22:00-07:00 or none"></label>
+  </div>
+  <label class="f" style="margin-top:8px">Note shown on every occurrence<input name="note"></label>
+  <p class="muted small">Examples: <code>FREQ=MONTHLY;BYMONTHDAY=5</code> · <code>FREQ=MONTHLY;BYMONTHDAY=-1</code> (last day) · <code>FREQ=WEEKLY;BYDAY=MO,TH</code> · <code>FREQ=YEARLY;BYMONTH=6;BYMONTHDAY=15</code></p>
+  <p><button class="primary">Create</button></p>
+</form>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hidden with context %}
+{% block title %}Sebastian · Logs & notes{% endblock %}
+{% block content %}
+<h1>Logs &amp; notes</h1>
+
+<form method="post" action="/entries/new" class="card">{{ hidden('/entries') }}
+  <div class="grid">
+    <label class="f">Category<select name="category">{% for c in categories %}<option>{{ c.name }}</option>{% endfor %}</select></label>
+    <label class="f">When ({{ eff.timezone }}; blank = now)<input type="datetime-local" name="at"></label>
+  </div>
+  <label class="f" style="margin-top:8px">Text (required for Note)<input name="text"></label>
+  <p><button class="primary">Record</button></p>
+</form>
+
+<h2>Filter &amp; summary</h2>
+<form method="get" class="card">
+  <div class="grid">
+    <label class="f">Category<select name="category"><option value="">All</option>{% for c in categories %}<option {{ 'selected' if c.name == category }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label class="f">Text contains<input name="q" value="{{ q }}"></label>
+    <label class="f">From<input type="date" name="start" value="{{ start }}"></label>
+    <label class="f">To<input type="date" name="end" value="{{ end }}"></label>
+    <label class="f">Group summary by<select name="group_by">{% for g in ['week', 'month', 'year', 'none'] %}<option {{ 'selected' if g == group_by }}>{{ g }}</option>{% endfor %}</select></label>
+  </div>
+  <p><button>Apply</button> <span class="muted small">Default range: this year to date</span></p>
+</form>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+{% if summary %}
+<table>
+  <tr><th>Category</th><th>Period</th><th>Entries</th><th>Distinct days</th></tr>
+  {% for c in summary.categories %}
+    <tr><td><b>{{ c.category }}</b></td><td class="muted">{{ summary.from }} → {{ summary.to }}</td><td><b>{{ c.total_entries }}</b></td><td><b>{{ c.distinct_days }}</b></td></tr>
+    {% if summary.group_by != 'none' %}{% for p in c.periods %}
+      <tr><td></td><td>{{ p.period }}</td><td>{{ p.entries }}</td><td>{{ p.distinct_days }}</td></tr>
+    {% endfor %}{% endif %}
+  {% else %}<tr><td colspan="4" class="empty">No entries in this range.</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+<h2>Entries</h2>
+{% for e in entries %}
+<div class="card">
+  <div class="row"><span class="chip">{{ e.category }}</span><span class="small muted">{{ e.created_local }}</span></div>
+  {% if e.text %}<div>{{ e.text }}</div>{% endif %}
+  <details><summary>Edit / delete</summary>
+    <form method="post" action="/entries/{{ e.id }}/edit" class="inline">{{ hidden('/entries') }}
+      <select name="category">{% for c in categories %}<option {{ 'selected' if c.name == e.category }}>{{ c.name }}</option>{% endfor %}</select>
+      <input name="text" value="{{ e.text or '' }}" size="30"><button>Save</button></form>
+    <form method="post" action="/entries/{{ e.id }}/delete" style="margin-top:6px" onsubmit="return confirm('Delete this entry?')">{{ hidden('/entries') }}
+      <button class="danger">Delete</button></form>
+  </details>
+</div>
+{% else %}<p class="empty">No entries.</p>{% endfor %}
+{% endblock %}

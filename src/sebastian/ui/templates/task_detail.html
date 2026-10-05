@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import task_card, hidden with context %}
+{% block title %}Sebastian · {{ t.title }}{% endblock %}
+{% block content %}
+<p><a href="/tasks">← Tasks</a>{% if t.series_id %} · <a href="/series/{{ t.series_id }}">Series</a>{% endif %}</p>
+{{ task_card(t, '/tasks/' ~ t.id, detail=True) }}
+<h2>Edit</h2>
+<form method="post" action="/tasks/{{ t.id }}/edit" class="card">{{ hidden('/tasks/' ~ t.id) }}
+  <div class="grid">
+    <label class="f">Title<input name="title" value="{{ t.title }}" required></label>
+    <label class="f">Due ({{ eff.timezone }})<input type="datetime-local" name="due" value="{{ due_local_input }}"></label>
+    <label class="f">Nag every (min)<input name="nag_interval_min" value="{{ t.nag_interval_min }}" inputmode="numeric"></label>
+    <label class="f">Quiet hours<input name="quiet_hours" value="{{ t.quiet_hours }}" placeholder="22:00-07:00 or none"></label>
+  </div>
+  <p><button class="primary">Save</button></p>
+</form>
+{% if not t.recurring %}
+<form method="post" action="/tasks/{{ t.id }}/delete" onsubmit="return confirm('Delete this task for good?')">{{ hidden('/tasks') }}
+  <button class="danger">Delete task</button></form>
+{% endif %}
+{% endblock %}

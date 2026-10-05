@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hidden with context %}
+{% block title %}Sebastian · Categories{% endblock %}
+{% block content %}
+<h1>Categories</h1>
+<p class="muted">The description is read by Hermes to decide which category a message belongs to, so write it for the agent.</p>
+{% for c in cats %}
+<div class="card">
+  <form method="post" action="/categories/{{ c.id }}/edit">{{ hidden('/categories') }}
+    <div class="row"><b class="grow">{{ c.name }}</b>
+      <span class="chip">{{ c.entry_count }} entries</span>{% if c.archived %}<span class="chip">archived</span>{% endif %}</div>
+    <div class="grid" style="margin-top:8px">
+      <label class="f">Name<input name="name" value="{{ c.name }}"></label>
+      <label class="f" style="grid-column: span 2">Description<input name="description" value="{{ c.description }}"></label>
+    </div>
+    <p><label><input type="checkbox" name="requires_text" {{ 'checked' if c.requires_text }}> text required</label>
+      <button class="primary">Save</button></p>
+  </form>
+  <div class="actions" style="margin-top:0">
+    {% if c.archived %}
+      <form method="post" action="/categories/{{ c.id }}/restore">{{ hidden('/categories') }}<button>Restore</button></form>
+    {% else %}
+      <form method="post" action="/categories/{{ c.id }}/archive">{{ hidden('/categories') }}<button>Archive</button></form>
+    {% endif %}
+    <details><summary>Merge into…</summary>
+      <form method="post" action="/categories/{{ c.id }}/merge" class="inline" onsubmit="return confirm('Move all entries and delete this category?')">{{ hidden('/categories') }}
+        <select name="into">{% for o in cats if o.id != c.id %}<option>{{ o.name }}</option>{% endfor %}</select>
+        <button class="danger">Merge</button></form>
+    </details>
+  </div>
+</div>
+{% endfor %}
+<h2>New category</h2>
+<form method="post" action="/categories/new" class="card">{{ hidden('/categories') }}
+  <div class="grid">
+    <label class="f">Name<input name="name" required placeholder="Public Transport"></label>
+    <label class="f" style="grid-column: span 2">Description for the agent<input name="description" placeholder="Count each trip on bus, tram or metro; no text needed"></label>
+  </div>
+  <p><label><input type="checkbox" name="requires_text"> text required</label> <button class="primary">Create</button></p>
+</form>
+{% endblock %}

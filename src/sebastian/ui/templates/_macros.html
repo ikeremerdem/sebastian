@@ -1,0 +1,51 @@
+{% macro hidden(next) %}<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ next }}">{% endmacro %}
+
+{% macro task_card(t, next, detail=False) %}
+<div class="card {{ 'overdue' if t.overdue and t.state != 'snoozed' }} {{ 'snoozed' if t.state == 'snoozed' }}">
+  <div class="row">
+    <span class="title grow"><a href="/tasks/{{ t.id }}">{{ t.title }}</a></span>
+    <span class="chip {{ t.state }}">{{ t.state }}</span>
+    {% if t.recurring %}<span class="chip">occurrence {{ t.occurrence }}</span>{% endif %}
+    {% if t.overdue and t.state not in ('snoozed',) %}<span class="chip overdue">overdue</span>{% endif %}
+  </div>
+  <div class="small muted">
+    due {{ t.due_local }}
+    {% if t.state == 'snoozed' %} · snoozed until {{ t.snooze_until_local }}{% endif %}
+    {% if t.status == 'open' %} · nagged {{ t.nag_count }}× · every {{ t.nag_interval_min }} min{% endif %}
+    {% if t.done_local %} · closed {{ t.done_local }}{% endif %}
+  </div>
+  {% if t.series_note %}<div class="small">{{ t.series_note }}</div>{% endif %}
+  {% if t.remarks %}
+    {% if detail %}<pre class="remarks">{{ t.remarks }}</pre>
+    {% else %}<details><summary>remarks</summary><pre class="remarks">{{ t.remarks }}</pre></details>{% endif %}
+  {% endif %}
+  {% if t.status in ('open', 'waiting') %}
+  <div class="actions">
+    <form method="post" action="/tasks/{{ t.id }}/done" class="inline">{{ hidden(next) }}
+      <input name="note" placeholder="note (optional)" size="18"><button class="primary">Done</button></form>
+    {% if t.status == 'open' %}
+    <details><summary>Snooze</summary>
+      <form method="post" action="/tasks/{{ t.id }}/snooze" class="inline">{{ hidden(next) }}
+        <select name="minutes">{% for m, label in snooze_choices %}<option value="{{ m }}">{{ label }}</option>{% endfor %}</select>
+        <span class="muted small">or until</span><input type="datetime-local" name="until">
+        <input name="note" placeholder="note" size="14"><button>Snooze</button></form>
+    </details>
+    {% endif %}
+    <details><summary>Skip / note</summary>
+      <form method="post" action="/tasks/{{ t.id }}/skip" class="inline">{{ hidden(next) }}
+        <input name="note" placeholder="reason (optional)" size="16"><button>Skip</button></form>
+      <form method="post" action="/tasks/{{ t.id }}/remark" class="inline" style="margin-top:6px">{{ hidden(next) }}
+        <input name="note" placeholder="add a remark" size="20" required><button>Add remark</button></form>
+    </details>
+    {% if t.state == 'snoozed' %}
+    <form method="post" action="/tasks/{{ t.id }}/unsnooze">{{ hidden(next) }}<button>Wake now</button></form>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="actions">
+    <form method="post" action="/tasks/{{ t.id }}/reopen" class="inline">{{ hidden(next) }}
+      <input name="note" placeholder="why (optional)" size="16"><button>Reopen</button></form>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
