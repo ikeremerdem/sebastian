@@ -54,3 +54,30 @@ def ui(tmp_path):
     with TestClient(app, follow_redirects=False) as c:
         c.get("/openapi.json", headers={"Authorization": "Bearer test-key"})
         yield c
+
+
+@pytest.fixture
+def live_server(tmp_path):
+    """A real uvicorn server on a free port; yields its base URL."""
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+
+    from sebastian.app import create_app
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = create_app(f"sqlite:///{tmp_path / 'live.db'}")
+    srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=srv.run, daemon=True)
+    thread.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{port}"
+    srv.should_exit = True
+    thread.join(timeout=5)

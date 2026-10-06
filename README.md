@@ -266,30 +266,66 @@ sudo systemctl start sebastian      # migrations bring an older backup up to dat
 
 ## 7. Connecting Hermes
 
-Hermes runs on the same Pi, so it talks to `127.0.0.1:8000`. Two options; **MCP is recommended**.
+Hermes runs on the same Pi, so it talks to `127.0.0.1:8000`. There are two separate jobs: **chat** (you talk to Hermes
+on Telegram and it calls Sebastian's tools) and **scheduled messages** (nags, morning brief, weekly summary).
 
-**MCP:** register an MCP server named `sebastian`, transport *streamable HTTP*, URL `http://127.0.0.1:8000/mcp`,
-header `Authorization: Bearer <SEBASTIAN_API_KEY>`. (Check Hermes' documentation for the exact config keys.)
-**REST:** use the `/api/v1` endpoints above with the same header; `/openapi.json` describes them.
+### Chat: register Sebastian as an MCP server
 
-Give Hermes standing instructions along these lines (adapt the times and wording):
+Keep the key out of `config.yaml` by putting it in Hermes' `.env` and referring to it by name.
 
-> **Reminders.** Every 5 minutes call `get_due`. For each item, send me a short Telegram message
-> (task title, occurrence date for recurring ones, remarks, and how many times I've been nagged), then call
-> `mark_notified(task_id)`. When I say a task is done, call `complete_task` with any remark I gave; if I
-> say "snooze", call `snooze_task`; never mark something done unless I clearly said so. Find task ids with
-> `list_tasks(title_contains=...)`.
->
-> **Morning brief.** Every day at 07:30 call `get_digest_today` and send a brief summary: overdue, due today,
-> and *always* list anything snoozed with its wake-up time.
->
-> **Weekly summary.** Sunday 18:00 call `get_digest_entries(period="week")` and summarise counts per category.
->
-> **Logging.** Call `list_categories` and use the category descriptions to decide where my message belongs. "Record X"
-> → `add_entry` (no text). "Take note ..." → category `Note`, my words as text. If no category fits, ask me before
-> `create_category`.
+```bash
+# ~/.hermes/.env   (copy the value from SEBASTIAN_API_KEY in /etc/sebastian/env)
+SEBASTIAN_API_KEY=...
+```
 
-Polling interval is Hermes' call; a few minutes is plenty, since Sebastian itself tracks when each task may next be nagged.
+```yaml
+# ~/.hermes/config.yaml
+mcp_servers:
+  sebastian:
+    url: "http://127.0.0.1:8000/mcp"
+    headers:
+      Authorization: "Bearer ${SEBASTIAN_API_KEY}"
+    timeout: 30
+    connect_timeout: 10
+```
+
+Check it with `hermes mcp test sebastian` (it should list 20 tools). Hermes prefixes tool names with the server name
+(`mcp_sebastian_get_due`, ...). The gateway reloads its config within about a minute; `sudo systemctl restart hermes-gateway` forces it.
+The tool descriptions and the server's instructions tell the agent how nags, categories and snoozing work, so
+"rent is paid", "snooze it for 2 hours" or "record public transport" just work. Tell Hermes once to *use Sebastian for
+tasks, reminders, logs and notes* if it picks other tools.
+
+### Scheduled messages: Hermes cron, without an LLM
+
+Nags, the morning brief and the weekly summary are plain Hermes `--no-agent` cron jobs: a small script runs, its output
+is delivered to Telegram verbatim, and **empty output stays silent**. No model is involved, so they cost no tokens, are
+fast, and keep working if your LLM provider is down. The scripts live in `deploy/hermes/`; Hermes only runs scripts from
+`~/.hermes/scripts/`, so install (and after each Sebastian update, refresh) them with:
+
+```bash
+/opt/sebastian/deploy/hermes/install.sh
+```
+
+Then create the three jobs (delivery goes to your Telegram home channel):
+
+```bash
+hermes cron create "every 5m"    --no-agent --script sebastian_nag.sh    --name "Sebastian: nags"           --deliver telegram
+hermes cron create "30 7 * * *"  --no-agent --script sebastian_brief.sh  --name "Sebastian: morning brief"  --deliver telegram
+hermes cron create "0 18 * * 0"  --no-agent --script sebastian_weekly.sh --name "Sebastian: weekly summary" --deliver telegram
+```
+
+- **Nags** (`sebastian_nag.sh`): asks `GET /due` every 5 minutes. Nothing due, nothing sent. Otherwise one message listing each
+  due task (occurrence date, your remarks, how often you've been nagged) and each is reported as notified so the next nag
+  waits for its interval. Sebastian itself enforces snooze, quiet hours and the per-task interval. If Sebastian is
+  unreachable for ~15 minutes you get one warning, and a note when it's back.
+- **Morning brief** (07:30): overdue, due today, snoozed (with wake-up times) and coming up.
+- **Weekly summary** (Sunday 18:00): entries and distinct days per category for the week, plus the notes you wrote.
+
+Reply to a nag in Telegram ("rent done", "snooze rent 2h") and Hermes handles it through the MCP tools. Test a job at any
+time with `hermes cron run <job-id>`, list them with `hermes cron list`. The helper reads its key from `SEBASTIAN_API_KEY`
+or `~/.hermes/.env` and its address from `SEBASTIAN_URL` (default `http://127.0.0.1:8000`).
+
+**REST instead of MCP:** use the `/api/v1` endpoints above with the same bearer header; `/openapi.json` describes them.
 
 ## 8. Using the web UI from your Mac
 
@@ -326,7 +362,7 @@ src/sebastian/
   services/        all business logic (tasks, recurrence, nagging, entries, settings); REST/MCP/UI are thin adapters
   api/             REST routers          mcp_server.py   MCP tools          ui/   server-rendered web UI
   migrations/      Alembic migrations (applied on startup and by `sebastian migrate`)
-deploy/            systemd units, install.sh, deploy.sh      scripts/verify-deploy.sh   deployment rehearsal
+deploy/            systemd units, install.sh, deploy.sh; hermes/ = cron scripts for Hermes      scripts/verify-deploy.sh   deployment rehearsal
 tests/             pytest (frozen-clock tests for recurrence, nagging and summaries; MCP tested with the real client)
 ```
 
