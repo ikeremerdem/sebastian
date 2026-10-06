@@ -1,6 +1,7 @@
 """Pydantic request/response models and ORM -> output serializers."""
 
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,7 @@ from .clock import utcnow
 from .models import Category, Entry, Series, Task
 from .services import settings as settings_svc
 from .services import tasks as task_svc
+from .services.recurrence import describe as describe_rrule
 from .services.timeutil import fmt_local, local_date
 
 # ------------------------------------------------------------------- requests
@@ -101,6 +103,36 @@ class EntryUpdate(BaseModel):
 # ------------------------------------------------------------------ responses
 
 
+def human_when(dt: datetime | None, tz: ZoneInfo, now: datetime) -> str | None:
+    """'Today · 09:00', 'Tomorrow · 09:00', 'Mon 5 Oct · 09:00' (adds the year if not this year)."""
+    if dt is None:
+        return None
+    local, today = dt.astimezone(tz), now.astimezone(tz).date()
+    delta = (local.date() - today).days
+    if delta == 0:
+        day = "Today"
+    elif delta == 1:
+        day = "Tomorrow"
+    elif delta == -1:
+        day = "Yesterday"
+    else:
+        day = f"{local:%a} {local.day} {local:%b}" + (
+            f" {local.year}" if local.year != today.year else ""
+        )
+    return f"{day} · {local:%H:%M}"
+
+
+def relative_days(dt: datetime, tz: ZoneInfo, now: datetime, overdue_if_past: bool) -> str:
+    delta = (dt.astimezone(tz).date() - now.astimezone(tz).date()).days
+    if delta == 0:
+        return "due today"
+    if delta > 0:
+        return "tomorrow" if delta == 1 else f"in {delta} days"
+    n = -delta
+    word = "overdue" if overdue_if_past else "ago"
+    return f"1 day {word}" if n == 1 else f"{n} days {word}"
+
+
 def task_out(task: Task, eff: settings_svc.Effective, now: datetime | None = None) -> dict:
     now = now or utcnow()
     tz = eff.tz
@@ -119,6 +151,10 @@ def task_out(task: Task, eff: settings_svc.Effective, now: datetime | None = Non
         "state": state,
         "due_at": task.due_at,
         "due_local": fmt_local(task.due_at, tz),
+        "due_human": human_when(task.due_at, tz, now),
+        "due_relative": relative_days(task.due_at, tz, now, task.status == "open"),
+        "done_human": human_when(task.done_at, tz, now),
+        "snooze_human": human_when(task.snooze_until, tz, now) if state == "snoozed" else None,
         "overdue": task.status == "open" and local_date(task.due_at, tz) < local_date(now, tz),
         "done_at": task.done_at,
         "done_local": fmt_local(task.done_at, tz),
@@ -138,6 +174,7 @@ def series_out(series: Series, eff: settings_svc.Effective) -> dict:
         "title": series.title,
         "note": series.note,
         "rrule": series.rrule,
+        "schedule_text": describe_rrule(series.rrule, series.due_time),
         "dtstart": series.dtstart,
         "due_time": series.due_time,
         "tz": series.tz,

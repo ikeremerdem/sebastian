@@ -11,16 +11,19 @@ from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import schemas as sc
 from ..api.deps import get_session
 from ..clock import utcnow
 from ..config import get_config
+from ..models import Task
 from ..services import entries as entry_svc
 from ..services import settings as settings_svc
 from ..services import tasks as task_svc
 from ..services.errors import SebastianError
+from ..services.recurrence import WEEKDAY_CODES, build_rrule_string
 from ..services.timeutil import get_tz, local_date
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -50,6 +53,22 @@ def flash(request: Request, message: str, kind: str = "ok") -> None:
     request.session.setdefault("flash", []).append([kind, message])
 
 
+def _active_count(request: Request) -> int:
+    """Open, un-snoozed tasks, for the sidebar badge."""
+    gen = request.app.state.db.session()
+    session = next(gen)
+    try:
+        now = utcnow()
+        return session.scalar(
+            select(func.count(Task.id)).where(
+                Task.status == "open",
+                or_(Task.snooze_until.is_(None), Task.snooze_until <= now),
+            )
+        )
+    finally:
+        session.close()
+
+
 def render(request: Request, name: str, **ctx):
     msgs = request.session.pop("flash", [])
     base = {
@@ -57,8 +76,47 @@ def render(request: Request, name: str, **ctx):
         "flashes": msgs,
         "nav": request.url.path,
         "snooze_choices": SNOOZE_CHOICES,
+        "weekdays": list(
+            zip(WEEKDAY_CODES, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], strict=True)
+        ),
+        "months": list(
+            enumerate(
+                [
+                    "Jan",
+                    "Feb",
+                    "Mar",
+                    "Apr",
+                    "May",
+                    "Jun",
+                    "Jul",
+                    "Aug",
+                    "Sep",
+                    "Oct",
+                    "Nov",
+                    "Dec",
+                ],
+                1,
+            )
+        ),
+        "open_count": _active_count(request) if authed(request) else 0,
     }
     return templates.TemplateResponse(request, name, {**base, **ctx})
+
+
+def rule_from_form(f, allow_keep: bool = False) -> str | None:
+    """The 'Repeat' picker -> RRULE (or None to keep the current schedule)."""
+    kind = str(f.get("repeat") or "monthly")
+    if kind == "keep" and allow_keep:
+        return None
+    if kind == "custom":
+        return str(f.get("rrule", "")).strip()
+    return build_rrule_string(
+        kind,
+        interval=opt_int(f.get("interval")) or 1,
+        day=f.get("day"),
+        month=opt_int(f.get("month")),
+        weekdays=f.getlist("weekday"),
+    )
 
 
 def safe_next(value: str | None, default: str) -> str:
@@ -203,7 +261,20 @@ def today(request: Request, session: Session = Depends(get_session)):
         for k in ("overdue", "today", "snoozed", "upcoming")
     }
     cats = [c for c, _ in entry_svc.list_categories(session) if c.name_key != "note"]
-    return render(request, "today.html", d=d, sections=sections, quick_cats=cats, eff=eff)
+    local_now = now.astimezone(eff.tz)
+    hour = local_now.hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+    return render(
+        request,
+        "today.html",
+        d=d,
+        sections=sections,
+        quick_cats=cats,
+        eff=eff,
+        categories=cats,
+        greeting=greeting,
+        long_date=f"{local_now:%A} {local_now.day} {local_now:%B}",
+    )
 
 
 @page.post("/quick/task")
@@ -321,7 +392,10 @@ async def task_action(
 
     resp = await run_action(request, f"/tasks/{task_id}", go)
     if action == "delete" and not any(k == "error" for k, _ in request.session.get("flash", [])):
-        return RedirectResponse("/tasks", status_code=303)
+        form = await request.form()
+        dest = safe_next(form.get("next"), "/tasks")
+        # never bounce back to the page of the task we just deleted
+        return RedirectResponse("/tasks" if dest.startswith(f"/tasks/{task_id}") else dest, 303)
     return resp
 
 
@@ -347,7 +421,7 @@ async def series_new(request: Request, session: Session = Depends(get_session)):
         task_svc.create_series(
             session,
             title=str(f.get("title", "")),
-            rrule=str(f.get("rrule", "")),
+            rrule=rule_from_form(f) or "",
             note=str(f.get("note", "")),
             dtstart=parse_date(f.get("dtstart")),
             due_time=str(f.get("due_time") or "09:00"),
@@ -387,7 +461,7 @@ async def series_action(
                 session,
                 series_id,
                 title=str(f.get("title", "")),
-                rrule=str(f.get("rrule", "")),
+                rrule=rule_from_form(f, allow_keep=True),
                 note=str(f.get("note", "")),
                 due_time=str(f.get("due_time") or "09:00"),
                 nag_interval_min=opt_int(f.get("nag_interval_min")),

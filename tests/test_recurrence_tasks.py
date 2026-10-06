@@ -198,14 +198,24 @@ def test_schedule_change_regenerates_future_only(session):
         assert len(tasks) == 1 and tasks[0].due_at.day == 10
 
 
-def test_generated_tasks_cannot_be_deleted_but_oneoffs_can(session):
+def test_any_task_can_be_deleted_and_deleted_occurrence_stays_gone(session):
     with freeze_time("2026-03-01 08:00:00"):
         rent(session)
         gen = svc.list_tasks(session)[0]
-        with pytest.raises(Conflict):
-            svc.delete_task(session, gen.id)
+        svc.delete_task(session, gen.id)
         one = svc.create_task(session, title="tmp")
         svc.delete_task(session, one.id)
+        assert svc.list_tasks(session) == []
+    with freeze_time("2026-03-02 08:00:00"):
+        assert svc.list_tasks(session) == []  # not regenerated
+    with freeze_time("2026-03-05 12:00:00"):
+        # the deleted 5 March occurrence stays gone; only April is queued
+        assert [(t.due_at.month, t.status) for t in svc.list_tasks(session)] == [(4, "waiting")]
+    with freeze_time("2026-04-06 12:00:00"):
+        assert sorted((t.due_at.month, t.status) for t in svc.list_tasks(session)) == [
+            (4, "open"),
+            (5, "waiting"),
+        ]
 
 
 def test_end_of_month_rule(session):
@@ -213,3 +223,34 @@ def test_end_of_month_rule(session):
         svc.create_series(session, title="Month end", rrule="FREQ=MONTHLY;BYMONTHDAY=-1")
         t = svc.list_tasks(session)[0]
         assert t.due_at == utc(2026, 2, 28, 8, 0)  # 09:00 CET on the last day
+
+
+def test_friendly_rule_builder_and_description():
+    from sebastian.services.recurrence import build_rrule_string as b
+    from sebastian.services.recurrence import build_rule, describe
+
+    assert b("monthly", day="5") == "FREQ=MONTHLY;BYMONTHDAY=5"
+    assert b("monthly", day="last") == "FREQ=MONTHLY;BYMONTHDAY=-1"
+    assert b("weekly", weekdays=["MO", "TH"], interval=2) == "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH"
+    assert b("yearly", day="15", month=6) == "FREQ=YEARLY;BYMONTH=6;BYMONTHDAY=15"
+    assert b("daily") == "FREQ=DAILY"
+    for bad in (
+        dict(kind="weekly"),
+        dict(kind="monthly", day="32"),
+        dict(kind="monthly", day="x"),
+        dict(kind="yearly", day="1"),
+        dict(kind="hourly"),
+    ):
+        with pytest.raises(Invalid):
+            b(**bad)
+    from datetime import date
+
+    for kind, kw in [("monthly", dict(day="31")), ("weekly", dict(weekdays=["SU"]))]:
+        build_rule(b(kind, **kw), date(2026, 1, 1), "09:00")  # builder output always parses
+
+    assert describe("FREQ=MONTHLY;BYMONTHDAY=5", "09:00") == "Every month on day 5 · 09:00"
+    assert describe("FREQ=MONTHLY;BYMONTHDAY=-1") == "Every month on the last day"
+    assert describe("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH") == "Every 2 weeks on Mon, Thu"
+    assert describe("FREQ=YEARLY;BYMONTH=6;BYMONTHDAY=15") == "Every year on 15 Jun"
+    assert describe("FREQ=DAILY") == "Every day"
+    assert describe("FREQ=MONTHLY;BYSETPOS=1;BYDAY=MO") == "FREQ=MONTHLY;BYSETPOS=1;BYDAY=MO"

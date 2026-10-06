@@ -1,27 +1,45 @@
 {% extends "base.html" %}
-{% from "_macros.html" import task_card, hidden with context %}
+{% from "_macros.html" import icon, dialog, repeat_picker, task_row, hidden, empty with context %}
 {% block title %}Sebastian · {{ s.title }}{% endblock %}
 {% block content %}
-<p><a href="/series">← Recurring tasks</a></p>
-<h1>{{ s.title }} {% if not s.active %}<span class="chip">archived</span>{% endif %}</h1>
-<form method="post" action="/series/{{ s.id }}/edit" class="card">{{ hidden('/series/' ~ s.id) }}
-  <div class="grid">
-    <label class="f">Title<input name="title" value="{{ s.title }}" required></label>
-    <label class="f">RRULE<input name="rrule" value="{{ s.rrule }}" required></label>
-    <label class="f">Due time ({{ s.tz }})<input name="due_time" value="{{ s.due_time }}"></label>
-    <label class="f">Nag every (min)<input name="nag_interval_min" value="{{ s.nag_interval_min if s.nag_interval_min else '' }}" placeholder="default {{ eff.default_nag_interval_min }}"></label>
-    <label class="f">Quiet hours<input name="quiet_hours" value="{{ s.quiet_hours or '' }}" placeholder="global"></label>
+<div class="page-head">
+  <div class="grow">
+    <div class="small muted"><a href="/series">Recurring tasks</a></div>
+    <h1>{{ s.title }} {% if not s.active %}<span class="pill">archived</span>{% endif %}</h1>
+    <div class="sub">{{ s.schedule_text }} · {{ s.tz }}</div>
   </div>
-  <label class="f" style="margin-top:8px">Note<input name="note" value="{{ s.note }}"></label>
-  <p class="muted small">Changing the schedule regenerates future occurrences; open and finished ones are kept.</p>
-  <p><button class="primary">Save</button></p>
-</form>
-{% if s.active %}
-<form method="post" action="/series/{{ s.id }}/archive" onsubmit="return confirm('Archive this series? History is kept.')">{{ hidden('/series') }}
-  <button class="danger">Archive series</button></form>
-{% else %}
-<form method="post" action="/series/{{ s.id }}/restore">{{ hidden('/series/' ~ s.id) }}<button>Restore series</button></form>
-{% endif %}
-<h2>Occurrences</h2>
-{% for t in tasks %}{{ task_card(t, '/series/' ~ s.id) }}{% else %}<p class="empty">None yet.</p>{% endfor %}
+  <div class="actions">
+    {% if s.active %}
+    <button data-dialog="archive-dialog">{{ icon('archive') }} Archive</button>
+    {% else %}
+    <form method="post" action="/series/{{ s.id }}/restore">{{ hidden('/series/' ~ s.id) }}<button class="primary">{{ icon('undo') }} Restore</button></form>
+    {% endif %}
+  </div>
+</div>
+
+<section>
+  <div class="section-head"><h2>Occurrences</h2></div>
+  <div class="card list">{% for t in tasks %}{{ task_row(t, '/series/' ~ s.id) }}
+    {% else %}{{ empty('repeat', 'No occurrences yet') }}{% endfor %}</div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Settings</h2></div>
+  <form method="post" action="/series/{{ s.id }}/edit" class="card pad">{{ hidden('/series/' ~ s.id) }}
+    <div class="form-grid">
+      <label class="field span2">Title<input name="title" value="{{ s.title }}" required></label>
+      {{ repeat_picker(allow_keep=True) }}
+      <label class="field">Due time ({{ s.tz }})<input name="due_time" value="{{ s.due_time }}"></label>
+      <label class="field">Nag every (min)<input name="nag_interval_min" value="{{ s.nag_interval_min if s.nag_interval_min else '' }}" placeholder="default {{ eff.default_nag_interval_min }}"></label>
+      <label class="field span2">Quiet hours<input name="quiet_hours" value="{{ s.quiet_hours or '' }}" placeholder="default {{ eff.quiet_hours }}"></label>
+      <label class="field span2">Note<input name="note" value="{{ s.note }}"></label>
+    </div>
+    <p class="hint">Changing the schedule regenerates future occurrences. Open and finished ones are kept.</p>
+    <div class="actions" style="margin-top:12px"><button class="primary">Save changes</button></div>
+  </form>
+</section>
+
+{% call dialog('archive-dialog', 'Archive this series?', 'Archive', '/series/' ~ s.id ~ '/archive', 'History is kept. Future occurrences that haven’t started are removed.', True) %}
+  <input type="hidden" name="x" value="1">
+{% endcall %}
 {% endblock %}

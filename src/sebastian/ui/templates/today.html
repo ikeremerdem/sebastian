@@ -1,40 +1,56 @@
 {% extends "base.html" %}
-{% from "_macros.html" import task_card, hidden with context %}
+{% from "_macros.html" import icon, task_row, hidden, empty, entry_dialog with context %}
+{% block title %}Sebastian · Today{% endblock %}
 {% block content %}
-<h1>Today <span class="muted small">{{ d.date }} · {{ d.timezone }}</span></h1>
-
-{% set titles = {'overdue': 'Overdue', 'today': 'Due today', 'snoozed': 'Snoozed (will resume)', 'upcoming': 'Coming up'} %}
-{% for key in ['overdue', 'today', 'snoozed', 'upcoming'] %}
-  {% if sections[key] %}<h2>{{ titles[key] }}</h2>
-    {% for t in sections[key] %}{{ task_card(t, '/') }}{% endfor %}
-  {% endif %}
-{% endfor %}
-{% if not (sections.overdue or sections.today or sections.snoozed or sections.upcoming) %}
-  <p class="empty">Nothing needs your attention. Well done.</p>
-{% endif %}
-
-<h2>Quick log</h2>
-<div class="card">
-  <div class="actions" style="margin-top:0">
-  {% for c in quick_cats %}
-    <form method="post" action="/quick/entry">{{ hidden('/') }}<input type="hidden" name="category" value="{{ c.name }}">
-      <button title="{{ c.description }}">+ {{ c.name }}</button></form>
-  {% endfor %}
-  {% if not quick_cats %}<span class="muted small">Create a category (e.g. Public Transport) to get one-tap logging.</span>{% endif %}
+<div class="page-head">
+  <div class="grow"><h1>{{ greeting }}</h1><div class="sub">{{ long_date }} · {{ d.timezone }}</div></div>
+  <div class="actions">
+    <button data-dialog="entry-dialog">{{ icon('log') }} Log entry</button>
+    <button class="primary" data-dialog="new-task-dialog" data-next="/">{{ icon('plus') }} Add task</button>
   </div>
-  <form method="post" action="/quick/entry" class="inline" style="margin-top:10px">{{ hidden('/') }}
-    <input type="hidden" name="category" value="Note"><input name="text" placeholder="Quick note" size="40" required>
-    <button>Save note</button></form>
 </div>
 
-<h2>Add a task</h2>
-<form method="post" action="/quick/task" class="card">{{ hidden('/') }}
-  <div class="grid">
-    <label class="f">Title<input name="title" required></label>
-    <label class="f">Due (blank = now)<input type="datetime-local" name="due"></label>
-    <label class="f">Nag every (min, blank = {{ eff.default_nag_interval_min }})<input name="nag_interval_min" inputmode="numeric"></label>
+<div class="stats">
+  <div class="card stat {{ 'bad' if sections.overdue }}"><div class="num">{{ sections.overdue|length }}</div><div class="lbl">Overdue</div></div>
+  <div class="card stat accent"><div class="num">{{ sections.today|length }}</div><div class="lbl">Due today</div></div>
+  <div class="card stat {{ 'warn' if sections.snoozed }}"><div class="num">{{ sections.snoozed|length }}</div><div class="lbl">Snoozed</div></div>
+  <div class="card stat"><div class="num">{{ sections.upcoming|length }}</div><div class="lbl">Coming up (7 days)</div></div>
+</div>
+
+{% set titles = {'overdue': 'Overdue', 'today': 'Due today', 'snoozed': 'Snoozed · will resume by themselves', 'upcoming': 'Coming up'} %}
+{% set shown = namespace(any=false) %}
+{% for key in ['overdue', 'today', 'snoozed', 'upcoming'] %}
+  {% if sections[key] %}{% set shown.any = true %}
+  <section class="section">
+    <div class="section-head"><h2>{{ titles[key] }}</h2><span class="count">{{ sections[key]|length }}</span></div>
+    <div class="card list">{% for t in sections[key] %}{{ task_row(t, '/') }}{% endfor %}</div>
+  </section>
+  {% endif %}
+{% endfor %}
+{% if not shown.any %}
+  <section class="section"><div class="card">{{ empty('check', 'All clear', 'Nothing needs your attention right now.') }}</div></section>
+{% endif %}
+
+<section class="section">
+  <div class="section-head"><h2>Quick log</h2><span class="grow"></span>
+    <a class="small muted" href="/entries">All logs {{ icon('arrow', 'sm') }}</a></div>
+  <div class="card pad">
+    {% if quick_cats %}
+    <div class="log-tiles">
+      {% for c in quick_cats %}
+      <form method="post" action="/quick/entry">{{ hidden('/') }}<input type="hidden" name="category" value="{{ c.name }}">
+        <button class="log-tile" title="{{ c.description }}"><span>{{ c.name }}</span>{{ icon('plus') }}</button></form>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="muted small">Create a category (e.g. “Public Transport”) to get one-tap logging here.</div>
+    {% endif %}
+    <form method="post" action="/quick/entry" class="quick-note">{{ hidden('/') }}
+      <input type="hidden" name="category" value="Note">
+      <input name="text" placeholder="Jot down a note…" required>
+      <button>Save note</button>
+    </form>
   </div>
-  <label class="f" style="margin-top:8px">Note<input name="note"></label>
-  <p><button class="primary">Add task</button></p>
-</form>
+</section>
+{{ entry_dialog(categories) }}
 {% endblock %}

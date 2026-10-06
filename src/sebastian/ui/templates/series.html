@@ -1,29 +1,35 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hidden with context %}
+{% from "_macros.html" import icon, dialog, repeat_picker, empty with context %}
 {% block title %}Sebastian · Recurring{% endblock %}
 {% block content %}
-<h1>Recurring tasks</h1>
-{% for s in series %}
-<div class="card">
-  <div class="row"><span class="title grow"><a href="/series/{{ s.id }}">{{ s.title }}</a></span>
-    {% if not s.active %}<span class="chip">archived</span>{% endif %}</div>
-  <div class="small muted"><code>{{ s.rrule }}</code> at {{ s.due_time }} ({{ s.tz }}) · nag every {{ s.effective_nag_interval_min }} min</div>
-  {% if s.note %}<div class="small">{{ s.note }}</div>{% endif %}
+<div class="page-head">
+  <div class="grow"><h1>Recurring tasks</h1><div class="sub">Each occurrence nags until you mark it done.</div></div>
+  <div class="actions"><button class="primary" data-dialog="series-dialog">{{ icon('plus') }} New recurring task</button></div>
 </div>
-{% else %}<p class="empty">No recurring tasks yet.</p>{% endfor %}
-
-<h2>New recurring task</h2>
-<form method="post" action="/series/new" class="card">{{ hidden('/series') }}
-  <div class="grid">
-    <label class="f">Title<input name="title" required placeholder="Collect rent from tenant"></label>
-    <label class="f">Repeat rule (iCalendar RRULE)<input name="rrule" required value="FREQ=MONTHLY;BYMONTHDAY=5"></label>
-    <label class="f">Due time ({{ eff.timezone }})<input name="due_time" value="09:00" pattern="[0-2][0-9]:[0-5][0-9]"></label>
-    <label class="f">Starting<input type="date" name="dtstart" value="{{ today }}"></label>
-    <label class="f">Nag every (min, blank = {{ eff.default_nag_interval_min }})<input name="nag_interval_min" inputmode="numeric"></label>
-    <label class="f">Quiet hours (blank = global)<input name="quiet_hours" placeholder="22:00-07:00 or none"></label>
+<div class="card list">
+  {% for s in series %}
+  <div class="row">
+    <span class="check done" style="background:var(--accent-soft);border-color:transparent;color:var(--accent)">{{ icon('repeat') }}</span>
+    <div class="main-col">
+      <a class="title" href="/series/{{ s.id }}">{{ s.title }}</a>
+      <div class="meta"><span>{{ s.schedule_text }}</span><span class="faint">nags every {{ s.effective_nag_interval_min }} min</span>
+        {% if not s.active %}<span class="pill">archived</span>{% endif %}</div>
+      {% if s.note %}<div class="note">{{ s.note }}</div>{% endif %}
+    </div>
+    <div class="side"><a class="btn ghost icon-only" href="/series/{{ s.id }}" aria-label="Open">{{ icon('arrow') }}</a></div>
   </div>
-  <label class="f" style="margin-top:8px">Note shown on every occurrence<input name="note"></label>
-  <p class="muted small">Examples: <code>FREQ=MONTHLY;BYMONTHDAY=5</code> · <code>FREQ=MONTHLY;BYMONTHDAY=-1</code> (last day) · <code>FREQ=WEEKLY;BYDAY=MO,TH</code> · <code>FREQ=YEARLY;BYMONTH=6;BYMONTHDAY=15</code></p>
-  <p><button class="primary">Create</button></p>
-</form>
+  {% else %}{{ empty('repeat', 'Nothing recurring yet', 'Rent, bills, check-ups: add one and it will nag until it’s done.') }}{% endfor %}
+</div>
+
+{% call dialog('series-dialog', 'New recurring task', 'Create', '/series/new', 'A new occurrence is created on schedule, even if the last one is still open.') %}
+  <label class="field">Title<input name="title" required placeholder="Collect rent from tenant"></label>
+  {{ repeat_picker() }}
+  <div class="form-grid">
+    <label class="field">Due time ({{ eff.timezone }})<input name="due_time" value="09:00" pattern="[0-2][0-9]:[0-5][0-9]"></label>
+    <label class="field">Starting<input type="date" name="dtstart" value="{{ today }}"></label>
+    <label class="field">Nag every (min)<input name="nag_interval_min" inputmode="numeric" placeholder="default {{ eff.default_nag_interval_min }}"></label>
+    <label class="field">Quiet hours<input name="quiet_hours" placeholder="default {{ eff.quiet_hours }}"></label>
+  </div>
+  <label class="field">Note <span class="hint" style="display:inline">(shown with every occurrence)</span><input name="note" placeholder="e.g. Flat 3B, 950 EUR"></label>
+{% endcall %}
 {% endblock %}

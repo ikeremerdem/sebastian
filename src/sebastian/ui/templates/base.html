@@ -1,30 +1,78 @@
+{% from "_macros.html" import icon, dialog, hidden with context %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{% block title %}Sebastian{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-{% if nav != '/login' %}
-<header class="top"><div class="in">
-  <a class="brand" href="/">Sebastian</a>
-  <nav>
-    <a href="/" class="{{ 'on' if nav == '/' }}">Today</a>
-    <a href="/tasks" class="{{ 'on' if nav.startswith('/tasks') }}">Tasks</a>
-    <a href="/series" class="{{ 'on' if nav.startswith('/series') }}">Recurring</a>
-    <a href="/entries" class="{{ 'on' if nav.startswith('/entries') }}">Logs &amp; notes</a>
-    <a href="/categories" class="{{ 'on' if nav.startswith('/categories') }}">Categories</a>
-    <a href="/settings" class="{{ 'on' if nav.startswith('/settings') }}">Settings</a>
-  </nav>
-  <span class="spacer"></span>
-  <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="small">Log out</button></form>
-</div></header>
+{% if nav == '/login' %}
+  {% block bare %}{% endblock %}
+{% else %}
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="mark">S</span> Sebastian</a>
+    <nav class="nav">
+      <a href="/" class="{{ 'on' if nav == '/' }}">{{ icon('today') }} Today
+        {% if open_count %}<span class="badge">{{ open_count }}</span>{% endif %}</a>
+      <a href="/tasks" class="{{ 'on' if nav.startswith('/tasks') }}">{{ icon('tasks') }} Tasks</a>
+      <a href="/series" class="{{ 'on' if nav.startswith('/series') }}">{{ icon('repeat') }} Recurring</a>
+      <div class="nav-label">Logs</div>
+      <a href="/entries" class="{{ 'on' if nav.startswith('/entries') }}">{{ icon('log') }} Logs &amp; notes</a>
+      <a href="/categories" class="{{ 'on' if nav.startswith('/categories') }}">{{ icon('tag') }} Categories</a>
+    </nav>
+    <div class="foot">
+      <nav class="nav"><a href="/settings" class="{{ 'on' if nav.startswith('/settings') }}">{{ icon('settings') }} Settings</a></nav>
+      <form method="post" action="/logout">{{ hidden('/login') }}
+        <button class="ghost">{{ icon('logout') }} Log out</button></form>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="ghost icon-only" data-nav-toggle aria-label="Menu">{{ icon('menu') }}</button>
+      <a class="brand" style="padding:0" href="/"><span class="mark">S</span> Sebastian</a>
+    </div>
+    <main class="content">{% block content %}{% endblock %}</main>
+  </div>
+</div>
+
+{# ---- task action dialogs, shared by every page ---- #}
+{% call dialog('done-dialog', 'Mark as done', 'Mark done') %}
+  <label class="field">Note <span class="hint" style="display:inline">(optional, saved in the task history)</span><input name="note" placeholder="e.g. paid by transfer"></label>
+{% endcall %}
+{% call dialog('snooze-dialog', 'Snooze', 'Snooze', '', 'Nagging pauses, then resumes by itself.') %}
+  <div class="form-grid">
+    <label class="field">For<select name="minutes">{% for m, label in snooze_choices %}<option value="{{ m }}">{{ label }}</option>{% endfor %}</select></label>
+    <label class="field">Or until<input type="datetime-local" name="until"><span class="hint">Overrides “For”</span></label>
+  </div>
+  <label class="field">Note <span class="hint" style="display:inline">(optional)</span><input name="note" placeholder="e.g. tenant says tomorrow"></label>
+{% endcall %}
+{% call dialog('skip-dialog', 'Skip this one', 'Skip', '', 'Closes it without doing it. Recurring series continue as scheduled.') %}
+  <label class="field">Reason <span class="hint" style="display:inline">(optional)</span><input name="note" placeholder="e.g. no rent this month"></label>
+{% endcall %}
+{% call dialog('remark-dialog', 'Add a remark', 'Add remark') %}
+  <label class="field">Remark<input name="note" required placeholder="Saved with a timestamp in the task history"></label>
+{% endcall %}
+{% call dialog('delete-dialog', 'Delete task?', 'Delete', '', '', True) %}
+  <p style="margin:0"><b data-fill="name"></b> will be deleted permanently.</p>
+  <p class="muted" style="margin:0" data-fill="extra"></p>
+{% endcall %}
+{% call dialog('new-task-dialog', 'Add a task', 'Add task', '/quick/task', 'One-off tasks nag until you mark them done.') %}
+  <label class="field">Title<input name="title" required placeholder="Call the dentist"></label>
+  <div class="form-grid">
+    <label class="field">Due <span class="hint" style="display:inline">(blank = now)</span><input type="datetime-local" name="due"></label>
+    <label class="field">Nag every (min)<input name="nag_interval_min" inputmode="numeric" placeholder="default {{ eff.default_nag_interval_min if eff else 60 }}"></label>
+  </div>
+  <label class="field">Note <span class="hint" style="display:inline">(optional)</span><input name="note"></label>
+{% endcall %}
 {% endif %}
-<main>
-  {% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
-  {% block content %}{% endblock %}
-</main>
+
+<div class="toasts" id="toasts">
+  {% for kind, msg in flashes %}<div class="toast {{ kind }}">{{ msg }}</div>{% endfor %}
+</div>
+<script src="/static/app.js"></script>
 </body>
 </html>

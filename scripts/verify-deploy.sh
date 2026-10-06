@@ -9,9 +9,16 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/sebastian-deploy.XXXXXX")
 PORT=${PORT:-18765}
 KEY=verify-key
+if curl -fs "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+  echo "port $PORT is already in use (a leftover server?). Stop it or set PORT=..." >&2; exit 1
+fi
 pass() { printf '  \033[32mok\033[0m  %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; echo "scratch dir kept: $T"; exit 1; }
-cleanup() { [[ -f $T/pid ]] && kill "$(cat "$T/pid")" 2>/dev/null || true; }
+OK=0
+cleanup() {
+  [[ -f $T/pid ]] && kill "$(cat "$T/pid")" 2>/dev/null || true
+  [[ $OK == 1 ]] && rm -rf "$T"
+}
 trap cleanup EXIT
 
 echo "scratch: $T"
@@ -115,4 +122,4 @@ echo "4) re-deploy of the current tag is a safe no-op"
 "$REPO/deploy/deploy.sh" v0.2.0 >"$T/d4.log" 2>&1 && pass "idempotent"
 
 echo; echo "ALL DEPLOY CHECKS PASSED"
-rm -rf "$T"
+OK=1

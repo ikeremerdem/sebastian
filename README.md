@@ -146,7 +146,7 @@ CLI: `sebastian serve | migrate | genkey | hash-password | backup --to DIR [--ke
 | Area | Endpoints |
 |---|---|
 | Nagging | `GET /due`, `POST /tasks/{id}/notified` |
-| Tasks | `POST/GET /tasks` (`?status=waiting\|open\|snoozed\|done\|skipped\|active\|all&q=&from=&to=`), `GET/PATCH/DELETE /tasks/{id}`, `POST /tasks/{id}/done\|skip\|snooze\|unsnooze\|remark\|reopen` |
+| Tasks | `POST/GET /tasks` (`?status=waiting\|open\|snoozed\|done\|skipped\|active\|all&q=&from=&to=`), `GET/PATCH/DELETE /tasks/{id}` (any task can be deleted), `POST /tasks/{id}/done\|skip\|snooze\|unsnooze\|remark\|reopen` |
 | Series | `POST/GET /series`, `GET/PATCH/DELETE /series/{id}` (DELETE archives; history kept) |
 | Categories | `GET/POST /categories`, `PATCH /categories/{id}`, `POST /categories/{id}/merge` |
 | Entries | `POST/GET /entries` (`?category=&q=&from=&to=`), `GET/PATCH/DELETE /entries/{id}`, `GET /entries/summary?category=&from=&to=&group_by=week\|month\|year\|none` |
@@ -303,9 +303,20 @@ ssh -N -L 8000:127.0.0.1:8000 pi        # then open http://localhost:8000
 [Tailscale](https://tailscale.com/) works too: `sudo tailscale serve --bg 8000` on the Pi gives an HTTPS URL on your
 tailnet without exposing a port to the internet.
 
-The UI: **Today** (overdue, due, snoozed, upcoming, plus one-tap logging and quick notes), **Tasks** (filter by
-status, remarks, edit), **Recurring** (series), **Logs & notes** (filter, search, summaries), **Categories**
-(descriptions for the agent, merge/archive) and **Settings**. Login is rate-limited and forms are CSRF-protected.
+The UI is a responsive app (light and dark, phone-friendly):
+
+- **Today**: stat tiles (overdue / due today / snoozed / coming up), grouped task rows with a one-click done circle,
+  one-tap logging for your categories and a quick-note box.
+- **Tasks**: filter by status, search, and per-task actions in a "⋯" menu: *Done with note*, *Snooze*, *Skip*,
+  *Add remark*, *Reopen* and **Delete**. Notes are entered in dialogs; everything is also available from the task's detail page.
+- **Recurring**: a repeat picker (monthly day or "last day", weekdays, daily, yearly, or a custom RRULE) with
+  readable schedules like "Every month on day 5 · 09:00".
+- **Logs & notes**: add, filter, search and summarise (entries and distinct days per week/month/year).
+- **Categories**: descriptions for the agent, merge and archive. **Settings**: timezone, nag interval, quiet hours.
+
+Deleting a task is permanent. For a recurring occurrence it removes that occurrence only; the series carries on and
+the deleted one is not regenerated. Prefer *Skip* when you want a record that it didn't happen.
+Login is rate-limited and forms are CSRF-protected.
 
 ## 9. Development
 

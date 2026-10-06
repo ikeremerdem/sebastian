@@ -1,55 +1,68 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hidden with context %}
+{% from "_macros.html" import icon, dialog, hidden, empty, entry_dialog with context %}
 {% block title %}Sebastian · Logs & notes{% endblock %}
 {% block content %}
-<h1>Logs &amp; notes</h1>
+<div class="page-head">
+  <div class="grow"><h1>Logs &amp; notes</h1><div class="sub">Counted occurrences and free-form notes, grouped by category.</div></div>
+  <div class="actions"><button class="primary" data-dialog="entry-dialog">{{ icon('plus') }} Log entry</button></div>
+</div>
 
-<form method="post" action="/entries/new" class="card">{{ hidden('/entries') }}
-  <div class="grid">
-    <label class="f">Category<select name="category">{% for c in categories %}<option>{{ c.name }}</option>{% endfor %}</select></label>
-    <label class="f">When ({{ eff.timezone }}; blank = now)<input type="datetime-local" name="at"></label>
+<form method="get" class="card pad">
+  <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+    <label class="field">Category<select name="category"><option value="">All</option>{% for c in categories %}<option {{ 'selected' if c.name == category }}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label class="field">Text contains<input name="q" value="{{ q }}"></label>
+    <label class="field">From<input type="date" name="start" value="{{ start }}"></label>
+    <label class="field">To<input type="date" name="end" value="{{ end }}"></label>
+    <label class="field">Group by<select name="group_by">{% for g in ['week', 'month', 'year', 'none'] %}<option {{ 'selected' if g == group_by }}>{{ g }}</option>{% endfor %}</select></label>
   </div>
-  <label class="f" style="margin-top:8px">Text (required for Note)<input name="text"></label>
-  <p><button class="primary">Record</button></p>
+  <div class="actions" style="margin-top:14px"><button class="primary">Apply</button><span class="hint" style="margin:0">Default range: this year to date</span></div>
 </form>
-
-<h2>Filter &amp; summary</h2>
-<form method="get" class="card">
-  <div class="grid">
-    <label class="f">Category<select name="category"><option value="">All</option>{% for c in categories %}<option {{ 'selected' if c.name == category }}>{{ c.name }}</option>{% endfor %}</select></label>
-    <label class="f">Text contains<input name="q" value="{{ q }}"></label>
-    <label class="f">From<input type="date" name="start" value="{{ start }}"></label>
-    <label class="f">To<input type="date" name="end" value="{{ end }}"></label>
-    <label class="f">Group summary by<select name="group_by">{% for g in ['week', 'month', 'year', 'none'] %}<option {{ 'selected' if g == group_by }}>{{ g }}</option>{% endfor %}</select></label>
-  </div>
-  <p><button>Apply</button> <span class="muted small">Default range: this year to date</span></p>
-</form>
-{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+{% if error %}<div class="card pad" style="margin-top:12px;color:var(--danger)">{{ error }}</div>{% endif %}
 
 {% if summary %}
-<table>
-  <tr><th>Category</th><th>Period</th><th>Entries</th><th>Distinct days</th></tr>
-  {% for c in summary.categories %}
-    <tr><td><b>{{ c.category }}</b></td><td class="muted">{{ summary.from }} → {{ summary.to }}</td><td><b>{{ c.total_entries }}</b></td><td><b>{{ c.distinct_days }}</b></td></tr>
-    {% if summary.group_by != 'none' %}{% for p in c.periods %}
-      <tr><td></td><td>{{ p.period }}</td><td>{{ p.entries }}</td><td>{{ p.distinct_days }}</td></tr>
-    {% endfor %}{% endif %}
-  {% else %}<tr><td colspan="4" class="empty">No entries in this range.</td></tr>{% endfor %}
-</table>
+<section class="section">
+  <div class="section-head"><h2>Summary</h2><span class="count">{{ summary.from }} → {{ summary.to }}</span></div>
+  <div class="card list">
+    <table class="data">
+      <tr><th>Category / period</th><th class="num">Entries</th><th class="num">Distinct days</th></tr>
+      {% for c in summary.categories %}
+        <tr class="group"><td>{{ c.category }}</td><td class="num">{{ c.total_entries }}</td><td class="num">{{ c.distinct_days }}</td></tr>
+        {% if summary.group_by != 'none' %}{% for p in c.periods %}
+        <tr class="sub"><td>{{ p.period }}</td><td class="num">{{ p.entries }}</td><td class="num">{{ p.distinct_days }}</td></tr>
+        {% endfor %}{% endif %}
+      {% else %}<tr><td colspan="3">{{ empty('log', 'Nothing in this range') }}</td></tr>{% endfor %}
+    </table>
+  </div>
+</section>
 {% endif %}
 
-<h2>Entries</h2>
-{% for e in entries %}
-<div class="card">
-  <div class="row"><span class="chip">{{ e.category }}</span><span class="small muted">{{ e.created_local }}</span></div>
-  {% if e.text %}<div>{{ e.text }}</div>{% endif %}
-  <details><summary>Edit / delete</summary>
-    <form method="post" action="/entries/{{ e.id }}/edit" class="inline">{{ hidden('/entries') }}
-      <select name="category">{% for c in categories %}<option {{ 'selected' if c.name == e.category }}>{{ c.name }}</option>{% endfor %}</select>
-      <input name="text" value="{{ e.text or '' }}" size="30"><button>Save</button></form>
-    <form method="post" action="/entries/{{ e.id }}/delete" style="margin-top:6px" onsubmit="return confirm('Delete this entry?')">{{ hidden('/entries') }}
-      <button class="danger">Delete</button></form>
-  </details>
-</div>
-{% else %}<p class="empty">No entries.</p>{% endfor %}
+<section class="section">
+  <div class="section-head"><h2>Entries</h2><span class="count">{{ entries|length }}</span></div>
+  <div class="card list">
+    {% for e in entries %}
+    <div class="row">
+      <div class="main-col">
+        <div class="meta" style="margin:0"><span class="pill recurring">{{ e.category }}</span><span>{{ e.created_local }}</span></div>
+        {% if e.text %}<div style="margin-top:4px">{{ e.text }}</div>{% endif %}
+      </div>
+      <div class="side"><details class="menu">
+        <summary class="btn ghost icon-only" aria-label="Actions">{{ icon('more') }}</summary>
+        <div class="menu-pop">
+          <button data-dialog="entry-edit-dialog" data-action="/entries/{{ e.id }}/edit" data-category="{{ e.category }}" data-text="{{ e.text or '' }}">{{ icon('edit', 'sm') }} Edit…</button>
+          <div class="sep"></div>
+          <button class="danger" data-dialog="entry-delete-dialog" data-action="/entries/{{ e.id }}/delete">{{ icon('trash', 'sm') }} Delete…</button>
+        </div></details></div>
+    </div>
+    {% else %}{{ empty('log', 'No entries yet', 'Log an occurrence or jot down a note.') }}{% endfor %}
+  </div>
+</section>
+
+{{ entry_dialog(categories) }}
+{% call dialog('entry-edit-dialog', 'Edit entry', 'Save') %}
+  <label class="field">Category<select name="category" data-value="category">{% for c in categories %}<option>{{ c.name }}</option>{% endfor %}</select></label>
+  <label class="field">Text<input name="text" data-value="text"></label>
+{% endcall %}
+{% call dialog('entry-delete-dialog', 'Delete entry?', 'Delete', '', 'This can’t be undone.', True) %}
+  <input type="hidden" name="x" value="1">
+{% endcall %}
 {% endblock %}

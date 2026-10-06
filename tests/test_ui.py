@@ -57,7 +57,7 @@ def test_task_flow_via_ui(ui):
     tid = re.search(r"/tasks/(\d+)", page).group(1)
 
     ui.post(f"/tasks/{tid}/snooze", data={"minutes": "60", "note": "later", "csrf": token})
-    assert "Snoozed (will resume)" in ui.get("/").text
+    assert "Snoozed · will resume by themselves" in ui.get("/").text
     ui.post(
         f"/tasks/{tid}/done", data={"note": "paid", "csrf": token, "next": "/tasks?status=done"}
     )
@@ -73,13 +73,16 @@ def test_series_categories_entries_via_ui(ui):
         "/series/new",
         data={
             "title": "Collect rent",
-            "rrule": "FREQ=MONTHLY;BYMONTHDAY=5",
+            "repeat": "monthly",
+            "day": "5",
             "due_time": "09:00",
             "csrf": token,
         },
     )
     assert "Collect rent" in ui.get("/series").text
-    bad = ui.post("/series/new", data={"title": "x", "rrule": "FREQ=NOPE", "csrf": token})
+    bad = ui.post(
+        "/series/new", data={"title": "x", "repeat": "custom", "rrule": "FREQ=NOPE", "csrf": token}
+    )
     assert bad.status_code == 303
     assert "invalid rrule" in ui.get("/series").text
 
@@ -125,7 +128,7 @@ def test_every_form_carries_a_real_csrf_token(ui):
     login(ui)
     token = csrf_of(ui.get("/").text)
     ui.post("/quick/task", data={"title": "T", "csrf": token})
-    ui.post("/series/new", data={"title": "S", "rrule": "FREQ=DAILY", "csrf": token})
+    ui.post("/series/new", data={"title": "S", "repeat": "daily", "csrf": token})
     ui.post("/categories/new", data={"name": "Gym", "csrf": token})
     ui.post("/quick/entry", data={"category": "Gym", "csrf": token})
     for path in (
@@ -155,3 +158,61 @@ def test_task_actions_work_with_the_form_tokens_on_the_page(ui):
     r = ui.post("/tasks/1/done", data={"note": "ok", "csrf": page_token, "next": "/"})
     assert r.status_code == 303
     assert "Marked done" in ui.get("/").text
+
+
+def test_delete_tasks_from_the_ui_including_recurring_occurrences(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "Throwaway", "csrf": token})
+    ui.post(
+        "/series/new",
+        data={"title": "Monthly rent", "repeat": "monthly", "day": "5", "csrf": token},
+    )
+    page = ui.get("/tasks?status=all").text
+    assert "Throwaway" in page and "Monthly rent" in page
+    ids = re.findall(r'<a class="title" href="/tasks/(\d+)">([^<]+)</a>', page)
+    by_title = {t: i for i, t in ids}
+
+    # one-off: delete from the list, land back on the list
+    r = ui.post(
+        f"/tasks/{by_title['Throwaway']}/delete", data={"csrf": token, "next": "/tasks?status=all"}
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/tasks?status=all"
+    # a recurring occurrence can be deleted too; deleting from its own page goes to the list
+    r = ui.post(
+        f"/tasks/{by_title['Monthly rent']}/delete",
+        data={"csrf": token, "next": f"/tasks/{by_title['Monthly rent']}"},
+    )
+    assert r.headers["location"] == "/tasks"
+    after = ui.get("/tasks?status=all").text
+    assert "Throwaway" not in after and "Monthly rent" not in after
+    assert ui.get(f"/tasks/{by_title['Throwaway']}").status_code == 303  # gone -> back to the list
+
+
+def test_repeat_picker_builds_rules_and_shows_friendly_schedule(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post(
+        "/series/new",
+        data={"title": "Gym", "repeat": "weekly", "weekday": ["MO", "TH"], "csrf": token},
+    )
+    ui.post(
+        "/series/new", data={"title": "Pension", "repeat": "monthly", "day": "last", "csrf": token}
+    )
+    ui.post(
+        "/series/new",
+        data={"title": "Tax", "repeat": "yearly", "month": "6", "day": "15", "csrf": token},
+    )
+    page = ui.get("/series").text
+    assert "Every week on Mon, Thu" in page
+    assert "Every month on the last day" in page
+    assert "Every year on 15 Jun" in page
+    ui.post("/series/new", data={"title": "Bad", "repeat": "weekly", "csrf": token})
+    assert "pick at least one weekday" in ui.get("/series").text
+    # editing with 'keep' leaves the schedule alone
+    ui.post(
+        "/series/1/edit",
+        data={"title": "Gym time", "repeat": "keep", "due_time": "07:30", "csrf": token},
+    )
+    detail = ui.get("/series/1").text
+    assert "Gym time" in detail and "Every week on Mon, Thu" in detail

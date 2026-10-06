@@ -1,17 +1,21 @@
 {% extends "base.html" %}
+{% from "_macros.html" import hidden with context %}
 {% block title %}Sebastian · Log in{% endblock %}
-{% block content %}
-<div class="login card">
-  <h1>Sebastian</h1>
-  <p class="muted">At your service.</p>
-  {% if not configured %}
-    <p class="flash error">No UI password is set. Run <code>sebastian hash-password</code> and put the result in <code>SEBASTIAN_UI_PASSWORD_HASH</code>.</p>
-  {% else %}
-  <form method="post" action="/login">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label class="f">Password<input type="password" name="password" autofocus required></label>
-    <p><button class="primary">Log in</button></p>
-  </form>
-  {% endif %}
+{% block bare %}
+<div class="login-wrap">
+  <div class="card login-card">
+    <div class="brand"><span class="mark">S</span> Sebastian</div>
+    <h1 style="font-size:20px">Welcome back</h1>
+    <p class="muted" style="margin:4px 0 20px">At your service.</p>
+    {% if not configured %}
+      <p class="muted">No UI password is set yet. Run <code>sebastian hash-password</code> and put the result in <code>SEBASTIAN_UI_PASSWORD_HASH</code>.</p>
+    {% else %}
+    <form method="post" action="/login">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="field">Password<input type="password" name="password" autofocus required autocomplete="current-password"></label>
+      <button class="primary" style="width:100%;justify-content:center;margin-top:16px">Log in</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

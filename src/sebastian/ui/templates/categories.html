@@ -1,41 +1,48 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hidden with context %}
+{% from "_macros.html" import icon, dialog, hidden, empty with context %}
 {% block title %}Sebastian · Categories{% endblock %}
 {% block content %}
-<h1>Categories</h1>
-<p class="muted">The description is read by Hermes to decide which category a message belongs to, so write it for the agent.</p>
-{% for c in cats %}
-<div class="card">
-  <form method="post" action="/categories/{{ c.id }}/edit">{{ hidden('/categories') }}
-    <div class="row"><b class="grow">{{ c.name }}</b>
-      <span class="chip">{{ c.entry_count }} entries</span>{% if c.archived %}<span class="chip">archived</span>{% endif %}</div>
-    <div class="grid" style="margin-top:8px">
-      <label class="f">Name<input name="name" value="{{ c.name }}"></label>
-      <label class="f" style="grid-column: span 2">Description<input name="description" value="{{ c.description }}"></label>
-    </div>
-    <p><label><input type="checkbox" name="requires_text" {{ 'checked' if c.requires_text }}> text required</label>
-      <button class="primary">Save</button></p>
-  </form>
-  <div class="actions" style="margin-top:0">
-    {% if c.archived %}
-      <form method="post" action="/categories/{{ c.id }}/restore">{{ hidden('/categories') }}<button>Restore</button></form>
-    {% else %}
-      <form method="post" action="/categories/{{ c.id }}/archive">{{ hidden('/categories') }}<button>Archive</button></form>
-    {% endif %}
-    <details><summary>Merge into…</summary>
-      <form method="post" action="/categories/{{ c.id }}/merge" class="inline" onsubmit="return confirm('Move all entries and delete this category?')">{{ hidden('/categories') }}
-        <select name="into">{% for o in cats if o.id != c.id %}<option>{{ o.name }}</option>{% endfor %}</select>
-        <button class="danger">Merge</button></form>
-    </details>
-  </div>
+<div class="page-head">
+  <div class="grow"><h1>Categories</h1>
+    <div class="sub">Hermes reads each description to decide where a message belongs, so write it for the agent.</div></div>
+  <div class="actions"><button class="primary" data-dialog="cat-new-dialog" data-next="/categories">{{ icon('plus') }} New category</button></div>
 </div>
-{% endfor %}
-<h2>New category</h2>
-<form method="post" action="/categories/new" class="card">{{ hidden('/categories') }}
-  <div class="grid">
-    <label class="f">Name<input name="name" required placeholder="Public Transport"></label>
-    <label class="f" style="grid-column: span 2">Description for the agent<input name="description" placeholder="Count each trip on bus, tram or metro; no text needed"></label>
+<div class="card list">
+  {% for c in cats %}
+  <div class="row">
+    <span class="check done" style="background:var(--accent-soft);border-color:transparent;color:var(--accent)">{{ icon('tag') }}</span>
+    <div class="main-col">
+      <span class="title">{{ c.name }}</span>
+      <div class="meta"><span>{{ c.entry_count }} {{ 'entry' if c.entry_count == 1 else 'entries' }}</span>
+        {% if c.requires_text %}<span class="pill">text required</span>{% endif %}
+        {% if c.archived %}<span class="pill">archived</span>{% endif %}</div>
+      {% if c.description %}<div class="note">{{ c.description }}</div>{% endif %}
+    </div>
+    <div class="side"><details class="menu">
+      <summary class="btn ghost icon-only" aria-label="Actions">{{ icon('more') }}</summary>
+      <div class="menu-pop">
+        <button data-dialog="cat-edit-dialog" data-action="/categories/{{ c.id }}/edit" data-next="/categories"
+                data-name="{{ c.name }}" data-description="{{ c.description }}" data-requires="{{ '1' if c.requires_text else '' }}">{{ icon('edit', 'sm') }} Edit…</button>
+        <form method="post" action="/categories/{{ c.id }}/{{ 'restore' if c.archived else 'archive' }}">{{ hidden('/categories') }}
+          <button>{{ icon('archive', 'sm') }} {{ 'Restore' if c.archived else 'Archive' }}</button></form>
+        {% if cats|length > 1 %}<button data-dialog="cat-merge-dialog" data-action="/categories/{{ c.id }}/merge" data-next="/categories" data-name="{{ c.name }}">{{ icon('merge', 'sm') }} Merge into…</button>{% endif %}
+      </div></details></div>
   </div>
-  <p><label><input type="checkbox" name="requires_text"> text required</label> <button class="primary">Create</button></p>
-</form>
+  {% else %}{{ empty('tag', 'No categories') }}{% endfor %}
+</div>
+
+{% call dialog('cat-new-dialog', 'New category', 'Create', '/categories/new') %}
+  <label class="field">Name<input name="name" required placeholder="Public Transport"></label>
+  <label class="field">Description for the agent<input name="description" placeholder="Count each trip by bus, tram or metro; no text needed"></label>
+  <label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="requires_text"> Text is required for entries</label>
+{% endcall %}
+{% call dialog('cat-edit-dialog', 'Edit category', 'Save') %}
+  <label class="field">Name<input name="name" data-value="name" required></label>
+  <label class="field">Description for the agent<input name="description" data-value="description"></label>
+  <label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="requires_text" data-check="requires"> Text is required for entries</label>
+{% endcall %}
+{% call dialog('cat-merge-dialog', 'Merge category', 'Merge', '', 'Moves every entry into the category you choose, then deletes this one.', True) %}
+  <p style="margin:0"><b data-fill="name"></b> →</p>
+  <label class="field">Merge into<select name="into">{% for c in cats %}<option>{{ c.name }}</option>{% endfor %}</select></label>
+{% endcall %}
 {% endblock %}

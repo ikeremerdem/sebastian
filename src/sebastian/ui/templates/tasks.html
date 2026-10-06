@@ -1,15 +1,25 @@
 {% extends "base.html" %}
-{% from "_macros.html" import task_card with context %}
+{% from "_macros.html" import icon, task_row, empty with context %}
 {% block title %}Sebastian · Tasks{% endblock %}
 {% block content %}
-<h1>Tasks</h1>
-<div class="tabs">
-  {% for s in statuses %}<a class="{{ 'on' if s == status }}" href="/tasks?status={{ s }}&q={{ q|urlencode }}{% if series_id %}&series_id={{ series_id }}{% endif %}">{{ s }}</a>{% endfor %}
+<div class="page-head">
+  <div class="grow"><h1>Tasks</h1><div class="sub">{{ tasks|length }} shown</div></div>
+  <div class="actions"><button class="primary" data-dialog="new-task-dialog" data-next="/tasks?status={{ status }}">{{ icon('plus') }} Add task</button></div>
 </div>
-<form method="get" class="inline" style="margin-bottom:12px">
-  <input type="hidden" name="status" value="{{ status }}">
-  {% if series_id %}<input type="hidden" name="series_id" value="{{ series_id }}">{% endif %}
-  <input name="q" value="{{ q }}" placeholder="search title"><button>Search</button>
-</form>
-{% for t in tasks %}{{ task_card(t, '/tasks?status=' ~ status) }}{% else %}<p class="empty">No tasks here.</p>{% endfor %}
+<div class="toolbar">
+  <div class="tabs">
+    {% for s in statuses %}<a class="{{ 'on' if s == status }}" href="/tasks?status={{ s }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if series_id %}&amp;series_id={{ series_id }}{% endif %}">{{ s|capitalize }}</a>{% endfor %}
+  </div>
+  <span class="grow"></span>
+  <form method="get" class="search">
+    {{ icon('search') }}
+    <input type="hidden" name="status" value="{{ status }}">
+    {% if series_id %}<input type="hidden" name="series_id" value="{{ series_id }}">{% endif %}
+    <input name="q" value="{{ q }}" placeholder="Search tasks" aria-label="Search tasks">
+  </form>
+</div>
+<div class="card list">
+  {% for t in tasks %}{{ task_row(t, '/tasks?status=' ~ status) }}
+  {% else %}{{ empty('tasks', 'No tasks here', 'Try another filter, or add a task.') }}{% endfor %}
+</div>
 {% endblock %}
