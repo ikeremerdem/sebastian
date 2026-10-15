@@ -27,10 +27,29 @@
 {%- endif %}</svg>
 {%- endmacro %}
 
+{# Date + time in 15-minute steps. `value` is a local 'YYYY-MM-DDTHH:MM' (an off-grid time is kept). #}
+{% macro time_select(name, value='') %}
+{% set t = value or now_slot %}
+<select name="{{ name }}" aria-label="Time">
+  {% if t not in time_slots %}<option value="{{ t }}" selected>{{ t }}</option>{% endif %}
+  {% for s in time_slots %}<option {{ 'selected' if s == t }}>{{ s }}</option>{% endfor %}
+</select>
+{% endmacro %}
+
+{% macro dt_field(name, label, value='', hint='') %}
+<label class="field">{{ label }}
+  <span class="dt">
+    <input type="date" name="{{ name }}_date" value="{{ value[:10] if value else '' }}" aria-label="{{ label }} date">
+    {{ time_select(name ~ '_time', value[11:16] if value else '') }}
+  </span>
+  {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+</label>
+{% endmacro %}
+
 {% macro hidden(next) %}<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ next }}">{% endmacro %}
 
 {# One task row: done-circle, title/meta, state pills and an actions menu. #}
-{% macro task_row(t, next) %}
+{% macro task_row(t, next, notes=True) %}
 {% set active = t.status in ('open', 'waiting') %}
 <div class="row {{ 'overdue' if t.overdue and t.state != 'snoozed' }} {{ 'snoozed' if t.state == 'snoozed' }} {{ 'finished' if not active }}">
   {% if active %}
@@ -56,11 +75,19 @@
       {% if t.recurring %}<span class="pill recurring" title="Occurrence of {{ t.occurrence }}">{{ icon('repeat', 'sm') }} Recurring</span>{% endif %}
     </div>
     {% if t.series_note %}<div class="note">{{ t.series_note }}</div>{% endif %}
-    {% if t.remarks %}
-      <details class="history"><summary>{{ icon('message', 'sm') }} History</summary><pre class="remarks">{{ t.remarks }}</pre></details>
+    {% if notes and t.remarks %}
+      {% set lines = t.remarks|note_lines %}
+      <div class="latest-note">{{ icon('message', 'sm') }}<span><span class="faint">{{ lines[-1].at[5:] }}</span> {{ lines[-1].text }}</span></div>
+      {% if lines|length > 1 %}
+      <details class="history"><summary>All notes ({{ lines|length }})</summary>
+        <ul class="timeline">{% for l in lines|reverse %}<li><span class="faint">{{ l.at }}</span> {{ l.text }}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
     {% endif %}
   </div>
   <div class="side">
+    <button class="btn ghost icon-only" title="Add a note" aria-label="Add a note" data-dialog="remark-dialog"
+            data-action="/tasks/{{ t.id }}/note" data-next="{{ next }}">{{ icon('message') }}</button>
     <details class="menu">
       <summary class="btn ghost icon-only" aria-label="Actions">{{ icon('more') }}</summary>
       <div class="menu-pop">
@@ -73,7 +100,7 @@
           <form method="post" action="/tasks/{{ t.id }}/unsnooze">{{ hidden(next) }}<button>{{ icon('sun', 'sm') }} Wake now</button></form>
           {% endif %}
           <button data-dialog="skip-dialog" data-action="/tasks/{{ t.id }}/skip" data-next="{{ next }}">{{ icon('skip', 'sm') }} Skip…</button>
-          <button data-dialog="remark-dialog" data-action="/tasks/{{ t.id }}/remark" data-next="{{ next }}">{{ icon('message', 'sm') }} Add remark…</button>
+          <button data-dialog="remark-dialog" data-action="/tasks/{{ t.id }}/note" data-next="{{ next }}">{{ icon('message', 'sm') }} Add note…</button>
         {% else %}
           <form method="post" action="/tasks/{{ t.id }}/reopen">{{ hidden(next) }}<button>{{ icon('undo', 'sm') }} Reopen</button></form>
         {% endif %}
@@ -149,6 +176,6 @@
     <select name="category">{% for c in categories %}<option>{{ c.name }}</option>{% endfor %}</select>
   </label>
   <label class="field">Text <span class="hint" style="display:inline">(required for Note)</span><input name="text" placeholder="e.g. Pizza Joint cost 18 EUR"></label>
-  <label class="field">When <span class="hint" style="display:inline">(blank = now)</span><input type="datetime-local" name="at"></label>
+  {{ dt_field('at', 'When', '', 'Leave the date empty for now.') }}
 {% endcall %}
 {% endmacro %}

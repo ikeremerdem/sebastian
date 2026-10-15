@@ -126,7 +126,7 @@ Values containing `$` (the password hash) should be wrapped in single quotes.
 | `SEBASTIAN_SESSION_SECRET` | falls back to the API key | Signs the UI session cookie. |
 | `SEBASTIAN_UI_PASSWORD_HASH` | (empty = UI login disabled) | Argon2 hash from `sebastian hash-password`. |
 | `SEBASTIAN_TIMEZONE` | `UTC` | IANA timezone for due times, quiet hours and "days". **Set this.** |
-| `SEBASTIAN_DEFAULT_NAG_INTERVAL_MIN` | `60` | Default minutes between nags. |
+| `SEBASTIAN_DEFAULT_NAG_INTERVAL_MIN` | `720` | Default minutes between nags (12 hours). A series or task can set its own. |
 | `SEBASTIAN_QUIET_HOURS` | `22:00-07:00` | Local window with no nags; `none` disables. |
 | `SEBASTIAN_AUTO_MIGRATE` | `true` | Run Alembic migrations when the server starts. |
 | `SEBASTIAN_HOST` / `SEBASTIAN_PORT` | `127.0.0.1` / `8000` | Bind address. Keep it on localhost. |
@@ -146,7 +146,7 @@ CLI: `sebastian serve | migrate | genkey | hash-password | backup --to DIR [--ke
 | Area | Endpoints |
 |---|---|
 | Nagging | `GET /due`, `POST /tasks/{id}/notified` |
-| Tasks | `POST/GET /tasks` (`?status=waiting\|open\|snoozed\|done\|skipped\|active\|all&q=&from=&to=`), `GET/PATCH/DELETE /tasks/{id}` (any task can be deleted), `POST /tasks/{id}/done\|skip\|snooze\|unsnooze\|remark\|reopen` |
+| Tasks | `POST/GET /tasks` (`?status=waiting\|open\|snoozed\|done\|skipped\|active\|all&q=&from=&to=`), `GET/PATCH/DELETE /tasks/{id}` (any task can be deleted), `POST /tasks/{id}/done\|skip\|snooze\|unsnooze\|note\|reopen` |
 | Series | `POST/GET /series`, `GET/PATCH/DELETE /series/{id}` (DELETE archives; history kept) |
 | Categories | `GET/POST /categories`, `PATCH /categories/{id}`, `POST /categories/{id}/merge` |
 | Entries | `POST/GET /entries` (`?category=&q=&from=&to=`), `GET/PATCH/DELETE /entries/{id}`, `GET /entries/summary?category=&from=&to=&group_by=week\|month\|year\|none` |
@@ -158,7 +158,7 @@ Times are ISO 8601 and **must carry a UTC offset**; summaries use local calendar
 
 **MCP** (streamable HTTP at `/mcp`, same bearer key). Tools:
 `get_due`, `mark_notified`, `get_digest_today`, `list_tasks`, `create_task`, `complete_task`, `snooze_task`,
-`skip_task`, `add_task_remark`, `reopen_task`, `create_series`, `list_series`, `archive_series`, `list_categories`,
+`skip_task`, `add_task_note`, `reopen_task`, `create_series`, `list_series`, `archive_series`, `list_categories`,
 `create_category`, `add_entry`, `search_entries`, `entry_summary`, `get_digest_entries`, `get_settings`.
 The server ships instructions that explain the nag loop and category rules to the agent.
 

@@ -26,7 +26,8 @@ you (the agent) poll it, deliver messages to the user yourself, and report back.
 TASKS. A task has a due time and nags until the user explicitly says it is done.
 Recurring obligations (monthly rent, bills) are a *series* that generates one task per
 occurrence; one-off tasks are plain tasks. Only complete_task / skip_task stop nagging;
-snoozing only pauses it. Every task has `remarks`, a timestamped history of notes.
+snoozing only pauses it. Every task has `remarks`, its timestamped notes history, and
+add_task_note adds a note at any time without changing the task's status.
 NAG LOOP: call get_due periodically. For each item, message the user, then call
 mark_notified(task_id) so the next nag respects the interval. When the user says a task
 is done, call complete_task (pass any remark they gave). Never invent task ids: use
@@ -176,8 +177,9 @@ def build_mcp(db: Database) -> MCPServer:
         return run(lambda s, e, n: sc.task_out(task_svc.skip_task(s, task_id, note), e, n))
 
     @mcp.tool()
-    def add_task_remark(task_id: int, note: str) -> dict:
-        """Append a timestamped remark to a task's history."""
+    def add_task_note(task_id: int, note: str) -> dict:
+        """Add a note to a task at any time (it does not change the task's status). Notes
+        are timestamped and kept in the task's `remarks` history, shown with the task."""
         return run(lambda s, e, n: sc.task_out(task_svc.add_remark(s, task_id, note), e, n))
 
     @mcp.tool()

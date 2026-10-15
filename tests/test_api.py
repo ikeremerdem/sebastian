@@ -106,8 +106,26 @@ def test_categories_and_entries_flow(client):
     assert client.delete(f"/api/v1/entries/{ok.json()['id']}").status_code == 204
 
 
+def test_default_nag_interval_is_12_hours(client):
+    assert client.get("/api/v1/settings").json()["default_nag_interval_min"] == 720
+    t = client.post("/api/v1/tasks", json={"title": "uses the default"}).json()
+    assert t["nag_interval_min"] == 720  # tasks without their own interval follow the default
+    own = client.post("/api/v1/tasks", json={"title": "own", "nag_interval_min": 30}).json()
+    assert own["nag_interval_min"] == 30
+
+
 def test_settings_roundtrip(client):
     assert client.get("/api/v1/settings").json()["timezone"] == "Europe/Berlin"
     r = client.patch("/api/v1/settings", json={"quiet_hours": "23:00-06:00"})
     assert r.json()["quiet_hours"] == "23:00-06:00"
     assert client.patch("/api/v1/settings", json={"timezone": "Nowhere/Land"}).status_code == 422
+
+
+def test_notes_endpoint_and_legacy_remark_alias(client):
+    t = client.post("/api/v1/tasks", json={"title": "Pay rent"}).json()
+    r = client.post(f"/api/v1/tasks/{t['id']}/note", json={"note": "waiting for bank"})
+    assert r.status_code == 200 and r.json()["status"] == "open"
+    assert "waiting for bank" in r.json()["remarks"]
+    legacy = client.post(f"/api/v1/tasks/{t['id']}/remark", json={"note": "old name"})
+    assert legacy.status_code == 200 and "old name" in legacy.json()["remarks"]
+    assert client.post(f"/api/v1/tasks/{t['id']}/note", json={"note": " "}).status_code == 422

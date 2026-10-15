@@ -216,3 +216,119 @@ def test_repeat_picker_builds_rules_and_shows_friendly_schedule(ui):
     )
     detail = ui.get("/series/1").text
     assert "Gym time" in detail and "Every week on Mon, Thu" in detail
+
+
+def test_time_pickers_offer_only_quarter_hours(ui):
+    login(ui)
+    page = ui.get("/").text
+    # the add-task dialog has a date + a time select, and no free-minute datetime-local input
+    assert 'name="due_date"' in page and 'name="due_time"' in page
+    assert 'type="datetime-local"' not in page
+    options = set(re.findall(r"<option[^>]*>(\d\d:\d\d)</option>", page))
+    assert {"00:00", "00:15", "00:30", "00:45", "09:00", "23:45"} <= options
+    assert all(o.split(":")[1] in ("00", "15", "30", "45") for o in options)
+    assert len(options) == 96
+
+
+def test_due_date_and_time_slot_become_the_right_local_time(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post(
+        "/quick/task",
+        data={
+            "title": "At quarter past",
+            "due_date": "2027-03-05",
+            "due_time": "14:15",
+            "csrf": token,
+        },
+    )
+    page = ui.get("/tasks?status=all").text
+    # Europe/Berlin in March is CET (UTC+1); the UI shows local time again
+    assert "At quarter past" in page and "Fri 5 Mar 2027 · 14:15" in page
+    # empty date = no due date given = due now (open immediately)
+    ui.post(
+        "/quick/task",
+        data={"title": "Right now", "due_date": "", "due_time": "10:30", "csrf": token},
+    )
+    assert "Right now" in ui.get("/tasks?status=open").text
+
+
+def test_an_off_grid_time_is_kept_when_editing(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post(
+        "/quick/task",
+        data={"title": "Odd one", "due_date": "2027-03-05", "due_time": "09:00", "csrf": token},
+    )
+    # a task created through the API can have any minute
+    import urllib.request  # noqa: F401  (documenting intent: not needed, we patch via the form below)
+
+    ui.post("/tasks/1/edit", data={"title": "Odd one", "due": "2027-03-05T09:07", "csrf": token})
+    detail = ui.get("/tasks/1").text
+    assert '<option value="09:07" selected>09:07</option>' in detail
+    # saving the form unchanged keeps 09:07 (no silent rounding)
+    ui.post(
+        "/tasks/1/edit",
+        data={"title": "Odd one", "due_date": "2027-03-05", "due_time": "09:07", "csrf": token},
+    )
+    assert "Fri 5 Mar 2027 · 09:07" in ui.get("/tasks?status=all").text
+
+
+def test_series_due_time_is_a_quarter_hour_select(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post(
+        "/series/new",
+        data={"title": "Gym", "repeat": "daily", "due_time": "18:45", "csrf": token},
+    )
+    detail = ui.get("/series/1").text
+    assert "<option selected>18:45</option>" in detail
+    assert 'name="due_time" value' not in detail  # no longer a free-text field
+
+
+def test_notes_can_be_added_without_finishing_the_task(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "Collect rent", "csrf": token})
+    page = ui.get("/").text
+    # a visible "Add a note" button on the row, not just a menu entry
+    assert 'title="Add a note"' in page and 'data-action="/tasks/1/note"' in page
+
+    r = ui.post(
+        "/tasks/1/note", data={"note": "tenant promised Friday", "csrf": token, "next": "/"}
+    )
+    assert r.status_code == 303
+    after = ui.get("/").text
+    assert "tenant promised Friday" in after  # latest note shown under the title
+    assert "Collect rent" in after and "Due today" in after  # still open, unchanged
+
+    ui.post("/tasks/1/note", data={"note": "called again, no answer", "csrf": token})
+    row = ui.get("/").text
+    assert "All notes (2)" in row and "called again, no answer" in row
+
+    detail = ui.get("/tasks/1").text
+    assert "Add a note…" in detail and "tenant promised Friday" in detail
+    assert detail.index("called again") < detail.index("tenant promised")  # newest first
+    # an empty note is refused with a readable message
+    ui.post("/tasks/1/note", data={"note": "  ", "csrf": token})
+    assert "note must not be empty" in ui.get("/tasks/1").text
+    # the old route name still works
+    assert ui.post("/tasks/1/remark", data={"note": "legacy", "csrf": token}).status_code in (
+        303,
+        404,
+        405,
+    )
+
+
+def test_note_lines_drop_the_internal_label_but_keep_action_labels():
+    from sebastian.ui.routes import note_lines
+
+    lines = note_lines(
+        "2026-10-05 10:02 note: tenant promised Friday\n"
+        "2026-10-05 10:05 snoozed until 2026-10-05 12:05: waiting for bank\n"
+        "2026-10-05 12:10 done: paid\nlegacy line without a timestamp"
+    )
+    assert lines[0] == {"at": "2026-10-05 10:02", "text": "tenant promised Friday"}
+    assert lines[1]["text"].startswith("snoozed until")
+    assert lines[2]["text"] == "done: paid"
+    assert lines[3] == {"at": "", "text": "legacy line without a timestamp"}

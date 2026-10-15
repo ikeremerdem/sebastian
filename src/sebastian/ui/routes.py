@@ -1,5 +1,6 @@
 """Server-rendered web UI (Jinja2 + plain forms; no JS build, no CDN)."""
 
+import re
 import secrets
 import time
 from collections import defaultdict
@@ -53,18 +54,22 @@ def flash(request: Request, message: str, kind: str = "ok") -> None:
     request.session.setdefault("flash", []).append([kind, message])
 
 
-def _active_count(request: Request) -> int:
-    """Open, un-snoozed tasks, for the sidebar badge."""
+def _shell_context(request: Request) -> tuple[int, str]:
+    """(open un-snoozed task count for the sidebar badge, next quarter-hour in local time)."""
     gen = request.app.state.db.session()
     session = next(gen)
     try:
         now = utcnow()
-        return session.scalar(
+        count = session.scalar(
             select(func.count(Task.id)).where(
                 Task.status == "open",
                 or_(Task.snooze_until.is_(None), Task.snooze_until <= now),
             )
         )
+        local = now.astimezone(settings_svc.get_effective(session).tz)
+        slot = (local.hour * 60 + local.minute) // 15 + 1
+        nxt = TIME_SLOTS[slot % 96]
+        return count, nxt
     finally:
         session.close()
 
@@ -98,8 +103,12 @@ def render(request: Request, name: str, **ctx):
                 1,
             )
         ),
-        "open_count": _active_count(request) if authed(request) else 0,
+        "time_slots": TIME_SLOTS,
+        "open_count": 0,
+        "now_slot": "09:00",
     }
+    if authed(request):
+        base["open_count"], base["now_slot"] = _shell_context(request)
     return templates.TemplateResponse(request, name, {**base, **ctx})
 
 
@@ -136,6 +145,39 @@ def parse_local_dt(value: str | None, tz) -> datetime | None:
     except ValueError as exc:
         raise SebastianError(f"invalid date/time {value!r}") from exc
     return naive.replace(tzinfo=tz).astimezone(UTC)
+
+
+def form_dt(f, name: str, tz) -> datetime | None:
+    """Read a `<name>_date` + `<name>_time` pair (15-minute slots) from a form.
+
+    Falls back to a single `<name>` datetime-local value so older callers keep working.
+    Blank date means "not set".
+    """
+    d = str(f.get(f"{name}_date") or "").strip()
+    if d:
+        t = str(f.get(f"{name}_time") or "").strip() or "00:00"
+        return parse_local_dt(f"{d}T{t}", tz)
+    return parse_local_dt(f.get(name), tz)
+
+
+_NOTE_LINE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.*)$")
+
+
+def note_lines(remarks: str | None) -> list[dict]:
+    """'2026-10-05 10:02 snoozed: x' lines -> [{'at': '2026-10-05 10:02', 'text': 'snoozed: x'}]."""
+    out = []
+    for line in (remarks or "").splitlines():
+        m = _NOTE_LINE.match(line)
+        if not m:
+            out.append({"at": "", "text": line})
+            continue
+        text = m[2].removeprefix("note: ")  # plain notes need no label; actions keep theirs
+        out.append({"at": m[1], "text": text})
+    return out
+
+
+templates.env.filters["note_lines"] = note_lines
+TIME_SLOTS = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
 
 def parse_date(value: str | None) -> date | None:
@@ -285,7 +327,7 @@ async def quick_task(request: Request, session: Session = Depends(get_session)):
         task_svc.create_task(
             session,
             title=str(f.get("title", "")),
-            due_at=parse_local_dt(f.get("due"), eff.tz),
+            due_at=form_dt(f, "due", eff.tz),
             note=str(f.get("note", "")),
             nag_interval_min=opt_int(f.get("nag_interval_min")),
         )
@@ -303,7 +345,7 @@ async def quick_entry(request: Request, session: Session = Depends(get_session))
             session,
             category=str(f.get("category", "")),
             text=opt_str(f.get("text")),
-            at=parse_local_dt(f.get("at"), eff.tz),
+            at=form_dt(f, "at", eff.tz),
         )
         return f"Logged in {e.category.name}."
 
@@ -344,7 +386,14 @@ def task_detail(request: Request, task_id: int, session: Session = Depends(get_s
         return RedirectResponse("/tasks", status_code=303)
     out = sc.task_out(task, eff, now)
     due_local = task.due_at.astimezone(eff.tz).strftime("%Y-%m-%dT%H:%M")
-    return render(request, "task_detail.html", t=out, due_local_input=due_local, eff=eff)
+    return render(
+        request,
+        "task_detail.html",
+        t=out,
+        due_local_input=due_local,
+        eff=eff,
+        lines=note_lines(out["remarks"]),
+    )
 
 
 @page.post("/tasks/{task_id}/{action}")
@@ -362,16 +411,16 @@ async def task_action(
             task_svc.skip_task(session, task_id, note)
             return "Skipped."
         if action == "snooze":
-            until = parse_local_dt(f.get("until"), eff.tz)
+            until = form_dt(f, "until", eff.tz)
             minutes = opt_int(f.get("minutes")) if until is None else None
             task_svc.snooze_task(session, task_id, until=until, minutes=minutes, note=note)
             return "Snoozed."
         if action == "unsnooze":
             task_svc.unsnooze_task(session, task_id, note)
             return "Snooze cleared."
-        if action == "remark":
+        if action in ("note", "remark"):  # "remark" is the pre-0.1.3 name
             task_svc.add_remark(session, task_id, note or "")
-            return "Remark added."
+            return "Note added."
         if action == "reopen":
             task_svc.reopen_task(session, task_id, note)
             return "Reopened."
@@ -380,7 +429,7 @@ async def task_action(
                 session,
                 task_id,
                 title=str(f.get("title", "")),
-                due_at=parse_local_dt(f.get("due"), eff.tz),
+                due_at=form_dt(f, "due", eff.tz),
                 nag_interval_min=opt_int(f.get("nag_interval_min")),
                 quiet_hours=opt_str(f.get("quiet_hours")),
             )
@@ -539,7 +588,7 @@ async def entry_new(request: Request, session: Session = Depends(get_session)):
             session,
             category=str(f.get("category", "")),
             text=opt_str(f.get("text")),
-            at=parse_local_dt(f.get("at"), eff.tz),
+            at=form_dt(f, "at", eff.tz),
         )
         return f"Recorded in {e.category.name}."
 
@@ -562,7 +611,7 @@ async def entry_action(
                 entry_id,
                 category=opt_str(f.get("category")),
                 text=opt_str(f.get("text")),
-                at=parse_local_dt(f.get("at"), eff.tz),
+                at=form_dt(f, "at", eff.tz),
             )
             return "Entry saved."
         raise SebastianError(f"unknown action {action!r}")

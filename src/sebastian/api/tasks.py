@@ -93,8 +93,10 @@ def unsnooze(
     return _task(session, svc.unsnooze_task(session, task_id, body.note))
 
 
-@router.post("/tasks/{task_id}/remark", tags=["tasks"])
-def remark(task_id: int, body: sc.NoteBody, session: Session = Depends(get_session)):
+@router.post("/tasks/{task_id}/note", tags=["tasks"])
+@router.post("/tasks/{task_id}/remark", tags=["tasks"], include_in_schema=False)  # old name
+def add_note(task_id: int, body: sc.NoteBody, session: Session = Depends(get_session)):
+    """Append a timestamped note to the task's history without changing its status."""
     return _task(session, svc.add_remark(session, task_id, body.note or ""))
 
 

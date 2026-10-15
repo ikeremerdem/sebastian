@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, task_row, hidden with context %}
+{% from "_macros.html" import icon, task_row, hidden, dt_field with context %}
 {% block title %}Sebastian · {{ t.title }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -13,7 +13,20 @@
   </div>
 </div>
 
-<div class="card list">{{ task_row(t, '/tasks/' ~ t.id) }}</div>
+<div class="card list">{{ task_row(t, '/tasks/' ~ t.id, notes=False) }}</div>
+
+<section class="section">
+  <div class="section-head"><h2>Notes</h2><span class="count">{{ lines|length }}</span></div>
+  <div class="card pad">
+    <form method="post" action="/tasks/{{ t.id }}/note" class="note-form">{{ hidden('/tasks/' ~ t.id) }}
+      <input name="note" required placeholder="Add a note…" aria-label="Add a note">
+      <button class="primary">{{ icon('message') }} Add note</button>
+    </form>
+    {% if lines %}
+    <ul class="timeline big">{% for l in lines|reverse %}<li><span class="faint">{{ l.at }}</span><span>{{ l.text }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="muted small" style="margin:12px 0 0">No notes yet. Everything you add here is timestamped and stays with the task.</p>{% endif %}
+  </div>
+</section>
 
 <section class="section">
   <div class="section-head"><h2>Details</h2></div>
@@ -31,7 +44,7 @@
   <form method="post" action="/tasks/{{ t.id }}/edit" class="card pad">{{ hidden('/tasks/' ~ t.id) }}
     <div class="form-grid">
       <label class="field span2">Title<input name="title" value="{{ t.title }}" required></label>
-      <label class="field">Due ({{ eff.timezone }})<input type="datetime-local" name="due" value="{{ due_local_input }}"></label>
+      {{ dt_field('due', 'Due (' ~ eff.timezone ~ ')', due_local_input) }}
       <label class="field">Nag every (min)<input name="nag_interval_min" value="{{ t.nag_interval_min }}" inputmode="numeric"></label>
       <label class="field span2">Quiet hours<input name="quiet_hours" value="{{ t.quiet_hours }}" placeholder="22:00-07:00 or none"><span class="hint">No nags in this local window.</span></label>
     </div>

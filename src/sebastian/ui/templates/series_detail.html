@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, dialog, repeat_picker, task_row, hidden, empty with context %}
+{% from "_macros.html" import icon, dialog, repeat_picker, task_row, hidden, empty, time_select with context %}
 {% block title %}Sebastian · {{ s.title }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -29,7 +29,7 @@
     <div class="form-grid">
       <label class="field span2">Title<input name="title" value="{{ s.title }}" required></label>
       {{ repeat_picker(allow_keep=True) }}
-      <label class="field">Due time ({{ s.tz }})<input name="due_time" value="{{ s.due_time }}"></label>
+      <label class="field">Due time ({{ s.tz }})<span class="dt one">{{ time_select('due_time', s.due_time) }}</span></label>
       <label class="field">Nag every (min)<input name="nag_interval_min" value="{{ s.nag_interval_min if s.nag_interval_min else '' }}" placeholder="default {{ eff.default_nag_interval_min }}"></label>
       <label class="field span2">Quiet hours<input name="quiet_hours" value="{{ s.quiet_hours or '' }}" placeholder="default {{ eff.quiet_hours }}"></label>
       <label class="field span2">Note<input name="note" value="{{ s.note }}"></label>

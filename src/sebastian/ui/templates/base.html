@@ -1,4 +1,4 @@
-{% from "_macros.html" import icon, dialog, hidden with context %}
+{% from "_macros.html" import icon, dialog, hidden, dt_field with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -46,15 +46,15 @@
 {% call dialog('snooze-dialog', 'Snooze', 'Snooze', '', 'Nagging pauses, then resumes by itself.') %}
   <div class="form-grid">
     <label class="field">For<select name="minutes">{% for m, label in snooze_choices %}<option value="{{ m }}">{{ label }}</option>{% endfor %}</select></label>
-    <label class="field">Or until<input type="datetime-local" name="until"><span class="hint">Overrides “For”</span></label>
+    {{ dt_field('until', 'Or until', '', 'Overrides “For”.') }}
   </div>
   <label class="field">Note <span class="hint" style="display:inline">(optional)</span><input name="note" placeholder="e.g. tenant says tomorrow"></label>
 {% endcall %}
 {% call dialog('skip-dialog', 'Skip this one', 'Skip', '', 'Closes it without doing it. Recurring series continue as scheduled.') %}
   <label class="field">Reason <span class="hint" style="display:inline">(optional)</span><input name="note" placeholder="e.g. no rent this month"></label>
 {% endcall %}
-{% call dialog('remark-dialog', 'Add a remark', 'Add remark') %}
-  <label class="field">Remark<input name="note" required placeholder="Saved with a timestamp in the task history"></label>
+{% call dialog('remark-dialog', 'Add a note', 'Add note', '', 'Saved with a timestamp. The task stays as it is.') %}
+  <label class="field">Note<input name="note" required placeholder="e.g. tenant promised to pay on Friday"></label>
 {% endcall %}
 {% call dialog('delete-dialog', 'Delete task?', 'Delete', '', '', True) %}
   <p style="margin:0"><b data-fill="name"></b> will be deleted permanently.</p>
@@ -63,8 +63,8 @@
 {% call dialog('new-task-dialog', 'Add a task', 'Add task', '/quick/task', 'One-off tasks nag until you mark them done.') %}
   <label class="field">Title<input name="title" required placeholder="Call the dentist"></label>
   <div class="form-grid">
-    <label class="field">Due <span class="hint" style="display:inline">(blank = now)</span><input type="datetime-local" name="due"></label>
-    <label class="field">Nag every (min)<input name="nag_interval_min" inputmode="numeric" placeholder="default {{ eff.default_nag_interval_min if eff else 60 }}"></label>
+    {{ dt_field('due', 'Due', '', 'Leave the date empty for now.') }}
+    <label class="field">Nag every (min)<input name="nag_interval_min" inputmode="numeric" placeholder="default {{ eff.default_nag_interval_min if eff else 720 }}"></label>
   </div>
   <label class="field">Note <span class="hint" style="display:inline">(optional)</span><input name="note"></label>
 {% endcall %}

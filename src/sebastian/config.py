@@ -14,7 +14,7 @@ class Config(BaseSettings):
     ui_password_hash: str = ""
     session_secret: str = ""
     timezone: str = "UTC"
-    default_nag_interval_min: int = 60
+    default_nag_interval_min: int = 720  # 12 hours
     quiet_hours: str = "22:00-07:00"
     auto_migrate: bool = True
     host: str = "127.0.0.1"

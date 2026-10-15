@@ -57,7 +57,14 @@ def test_mcp_agent_flow(server):
     async def go():
         async with authed(server) as client:
             names = {t.name for t in (await client.list_tools()).tools}
-            assert {"get_due", "complete_task", "add_entry", "entry_summary"} <= names
+            assert {
+                "get_due",
+                "complete_task",
+                "add_entry",
+                "entry_summary",
+                "add_task_note",
+            } <= names
+            assert "add_task_remark" not in names
 
             await client.call_tool(
                 "create_task", {"title": "Pay credit card", "note": "ING", "nag_interval_min": 30}
@@ -70,6 +77,8 @@ def test_mcp_agent_flow(server):
 
             found = data(await client.call_tool("list_tasks", {"title_contains": "credit"}))
             assert [t["id"] for t in found] == [tid]
+            noted = data(await client.call_tool("add_task_note", {"task_id": tid, "note": "ING"}))
+            assert noted["status"] == "open" and "ING" in noted["remarks"]
             done = data(await client.call_tool("complete_task", {"task_id": tid, "note": "paid"}))
             assert done["status"] == "done" and "paid" in done["remarks"]
 

@@ -226,3 +226,20 @@ dialog::backdrop { background: rgba(15, 23, 42, .45); backdrop-filter: blur(2px)
   .page-head .grow { flex-basis: 100%; }
   .page-head h1 { font-size: 22px; }
 }
+
+/* date + 15-minute time slot */
+.dt { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 8px; margin-top: 5px; }
+.dt.one { display: block; }
+.dt.one select { width: 100%; }
+label.field > .dt > input, label.field > .dt > select { margin-top: 0; }
+
+/* notes */
+.latest-note { display: flex; gap: 7px; align-items: flex-start; margin-top: 5px; font-size: 13px; color: var(--muted); }
+.latest-note .icon { margin-top: 2px; color: var(--faint); }
+.timeline { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.timeline li { padding-left: 10px; border-left: 2px solid var(--line); }
+.timeline.big { margin-top: 16px; font-size: 13.5px; color: var(--text); gap: 10px; }
+.timeline.big li { display: grid; grid-template-columns: 118px 1fr; gap: 10px; padding-left: 12px; }
+.note-form { display: flex; gap: 8px; }
+.note-form input { flex: 1; }
+@media (max-width: 860px) { .timeline.big li { grid-template-columns: 1fr; gap: 0; } .note-form { flex-wrap: wrap; } }
