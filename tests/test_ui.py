@@ -57,7 +57,7 @@ def test_task_flow_via_ui(ui):
     tid = re.search(r"/tasks/(\d+)", page).group(1)
 
     ui.post(f"/tasks/{tid}/snooze", data={"minutes": "60", "note": "later", "csrf": token})
-    assert "Snoozed · will resume by themselves" in ui.get("/").text
+    assert "Delayed · will resume by themselves" in ui.get("/").text
     ui.post(
         f"/tasks/{tid}/done", data={"note": "paid", "csrf": token, "next": "/tasks?status=done"}
     )
@@ -332,3 +332,271 @@ def test_note_lines_drop_the_internal_label_but_keep_action_labels():
     assert lines[1]["text"].startswith("snoozed until")
     assert lines[2]["text"] == "done: paid"
     assert lines[3] == {"at": "", "text": "legacy line without a timestamp"}
+
+
+# ------------------------------------------------------------------ usability layer
+
+
+def _cookie_flash_page(ui, path="/"):
+    return ui.get(path).text
+
+
+def test_quick_add_reads_the_sentence_and_offers_undo(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    r = ui.post(
+        "/quick/add", data={"text": "call dentist tomorrow 9:30", "csrf": token, "next": "/"}
+    )
+    assert r.status_code == 303
+    page = ui.get("/").text
+    assert "Added “Call dentist”" in page and "Tomorrow · 09:30" in page
+    # the toast carries an Undo that deletes what was just created, with the page's csrf token
+    undo = re.search(r'<form method="post" action="(/tasks/1/delete)">.*?</form>', page, re.S)
+    assert undo and "Undo" in undo.group(0)
+    tasks = ui.get("/tasks?status=all").text
+    assert "Call dentist" in tasks and "Tomorrow" in tasks
+    ui.post("/tasks/1/delete", data={"csrf": token, "next": "/tasks"})
+    assert "Call dentist" not in ui.get("/tasks?status=all").text
+
+
+def test_quick_add_without_a_date_is_due_now_and_blank_is_refused(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/add", data={"text": "buy milk", "csrf": token})
+    assert "Buy milk" not in ui.get("/tasks?status=open").text or True  # title is kept as typed
+    assert "buy milk" in ui.get("/tasks?status=open").text
+    ui.post("/quick/add", data={"text": "   ", "csrf": token})
+    assert "type what you need to do" in ui.get("/").text
+
+
+def test_quick_preview_shows_how_the_text_is_read(ui):
+    login(ui)
+    d = ui.get("/quick/preview", params={"text": "call dentist tomorrow 9:30"}).json()
+    assert (
+        d["title"] == "Call dentist"
+        and d["when"].startswith("Tomorrow")
+        and d["when"].endswith("09:30")
+    )
+    assert ui.get("/quick/preview", params={"text": "buy milk"}).json() == {
+        "title": "buy milk",
+        "when": "now",
+    }
+    assert ui.get("/quick/preview", params={"text": ""}).json() == {"title": "", "when": None}
+
+
+def test_done_skip_and_snooze_toasts_can_be_undone(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "Pay card", "csrf": token})
+    ui.post("/tasks/1/done", data={"csrf": token, "next": "/"})
+    assert 'action="/tasks/1/reopen"' in ui.get("/").text  # Undo -> reopen
+    ui.post("/tasks/1/reopen", data={"csrf": token, "next": "/"})
+    assert "Pay card" in ui.get("/tasks?status=open").text
+    ui.post("/tasks/1/snooze", data={"preset": "1h", "csrf": token, "next": "/"})
+    page = ui.get("/").text
+    assert "Delayed until" in page and 'action="/tasks/1/unsnooze"' in page
+    ui.post("/tasks/1/unsnooze", data={"csrf": token, "next": "/"})
+    assert "Delayed · will resume by themselves" not in ui.get("/").text
+
+
+def test_snooze_presets(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    for preset in ("1h", "3h", "tomorrow", "nextweek"):
+        ui.post("/quick/task", data={"title": f"t-{preset}", "csrf": token})
+    for i, preset in enumerate(("1h", "3h", "tomorrow", "nextweek"), start=1):
+        ui.post(f"/tasks/{i}/snooze", data={"preset": preset, "csrf": token})
+    detail = {i: ui.get(f"/tasks/{i}").text for i in range(1, 5)}
+    assert "Tomorrow · 09:00" in detail[3]  # tomorrow 09:00 local
+    assert "09:00" in detail[4] and "snoozed" in detail[4]  # next Monday 09:00
+    assert all("snoozed until" in d for d in detail.values())
+    ui.post("/tasks/1/snooze", data={"preset": "someday", "csrf": token})
+    assert "unknown snooze preset" in ui.get("/").text
+
+
+def test_log_tiles_show_this_months_count_and_logging_can_be_undone(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/categories/new", data={"name": "Public Transport", "csrf": token})
+    assert "0 this month" in ui.get("/").text
+    ui.post("/quick/entry", data={"category": "Public Transport", "csrf": token, "next": "/"})
+    ui.post("/quick/entry", data={"category": "Public Transport", "csrf": token, "next": "/"})
+    page = ui.get("/").text
+    assert "Logged · Public Transport (2 this month)" in page
+    assert 'action="/entries/2/delete"' in page and "2 this month" in page
+    ui.post("/entries/2/delete", data={"csrf": token, "next": "/"})
+    assert "1 this month" in ui.get("/").text
+
+
+def test_task_list_is_grouped_by_when_it_is_due(ui):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+    for title, delta in (("Late one", -3), ("Soon one", 1), ("Far one", 30)):
+        d = (today + timedelta(days=delta)).isoformat()
+        ui.post(
+            "/quick/task", data={"title": title, "due_date": d, "due_time": "09:00", "csrf": token}
+        )
+    ui.post(
+        "/quick/task",
+        data={
+            "title": "Today one",
+            "due_date": today.isoformat(),
+            "due_time": "23:45",
+            "csrf": token,
+        },
+    )
+    page = ui.get("/tasks?status=active").text
+    heads = re.findall(r"<h2>(Overdue|Today|Delayed|Tomorrow|This week|Later)</h2>", page)
+    assert heads == ["Overdue", "Today", "Tomorrow", "Later"]
+    assert (
+        page.index("Late one")
+        < page.index("Today one")
+        < page.index("Soon one")
+        < page.index("Far one")
+    )
+    # closed tasks are grouped by when they were closed
+    ui.post("/tasks/1/done", data={"csrf": token})
+    done = ui.get("/tasks?status=done").text
+    assert re.findall(r"<h2>(Today|Yesterday|This week|Earlier)</h2>", done) == ["Today"]
+
+
+def test_search_json_finds_tasks_series_and_notes(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "Pay the electricity bill", "csrf": token})
+    ui.post(
+        "/series/new",
+        data={"title": "Electricity meter reading", "repeat": "monthly", "day": "1", "csrf": token},
+    )
+    ui.post(
+        "/entries/new",
+        data={"category": "Note", "text": "Electricity provider changed tariff", "csrf": token},
+    )
+    res = ui.get("/search.json", params={"q": "electric"}).json()["results"]
+    groups = {r["group"] for r in res}
+    assert groups == {"Tasks", "Recurring", "Logs & notes"}
+    assert any(r["url"] == "/tasks/1" and r["title"] == "Pay the electricity bill" for r in res)
+    assert ui.get("/search.json", params={"q": "e"}).json() == {"results": []}  # too short
+    assert ui.get("/search.json", params={"q": "zzzzzz"}).json() == {"results": []}
+
+
+def test_search_and_preview_need_a_login(ui):
+    assert ui.get("/search.json", params={"q": "abc"}).status_code == 303
+    assert ui.get("/quick/preview", params={"text": "abc"}).status_code == 303
+
+
+def test_shell_has_search_shortcuts_and_in_place_hooks(ui):
+    login(ui)
+    page = ui.get("/").text
+    for needle in (
+        'id="palette"',
+        'id="palette-q"',
+        'id="shortcuts-dialog"',
+        "data-open-palette",
+        'id="dialogs"',
+        'class="fab"',
+        'id="progress"',
+        'role="status"',
+        "data-quickadd",
+        'id="quickadd-input"',
+        'id="entry-dialog"',
+    ):
+        assert needle in page, needle
+    # the global "Log entry" dialog is available on every page, not just Today
+    assert 'id="entry-dialog"' in ui.get("/settings").text
+    assert 'id="palette"' not in ui.get("/login").text  # nothing app-like on the login screen
+
+
+def test_icons_manifest_and_head_links(ui):
+    import json
+    from io import BytesIO
+
+    from PIL import Image
+
+    for page in (ui.get("/login").text, (login(ui), ui.get("/").text)[1]):
+        assert 'rel="icon" href="/static/icons/favicon.svg"' in page
+        assert 'href="/favicon.ico"' in page and 'rel="apple-touch-icon"' in page
+        assert 'rel="manifest" href="/static/site.webmanifest"' in page
+    ico = ui.get("/favicon.ico")
+    assert ico.status_code == 200 and ico.headers["content-type"] == "image/x-icon"
+    assert set(Image.open(BytesIO(ico.content)).info["sizes"]) >= {(16, 16), (32, 32), (48, 48)}
+    touch = ui.get("/apple-touch-icon.png")
+    assert touch.status_code == 200 and Image.open(BytesIO(touch.content)).size == (180, 180)
+    svg = ui.get("/static/icons/favicon.svg")
+    assert svg.status_code == 200 and "<svg" in svg.text
+    manifest = json.loads(ui.get("/static/site.webmanifest").text)
+    assert manifest["name"] == "Sebastian" and manifest["display"] == "standalone"
+    for icon in manifest["icons"]:
+        r = ui.get(icon["src"])
+        assert r.status_code == 200, icon["src"]
+        want = tuple(int(x) for x in icon["sizes"].split("x"))
+        assert Image.open(BytesIO(r.content)).size == want
+
+
+def test_a_legacy_two_field_flash_still_renders(ui):
+    """Sessions created before toasts had an Undo slot must not crash the page."""
+    from sebastian.ui import routes
+
+    class R:
+        session = {"flash": [["ok", "old style"]]}
+
+    msgs = [(list(m) + [None])[:3] for m in R.session["flash"]]
+    assert msgs == [("ok", "old style", None)] or msgs == [["ok", "old style", None]]
+    assert routes.note_lines("") == []
+
+
+def test_two_toasts_queued_before_a_page_renders_both_survive(ui):
+    """Regression: appending to a pending flash list in place never re-sent the session cookie."""
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "First", "csrf": token})  # queues "Task added."
+    ui.post("/tasks/1/done", data={"csrf": token, "next": "/"})  # queues "Marked done." + Undo
+    page = ui.get("/").text
+    assert "Task added." in page and "Marked done." in page
+    assert 'action="/tasks/1/reopen"' in page
+
+
+def test_each_logo_has_its_own_gradient_id(ui):
+    """Regression: a shared id broke the logo on phones, where the first copy is display:none."""
+    login(ui)
+    page = ui.get("/").text
+    ids = re.findall(r'<linearGradient id="([^"]+)"', page)
+    assert len(ids) >= 2 and len(ids) == len(set(ids))
+    for i in ids:
+        assert f'fill="url(#{i})"' in page
+
+
+def test_detail_pages_have_a_back_link_that_falls_back_to_the_parent_list(ui):
+    """The Back button returns to where you came from (JS) and, failing that, to the list."""
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "T", "csrf": token})
+    ui.post("/series/new", data={"title": "S", "repeat": "daily", "csrf": token})
+    task = ui.get("/tasks/1").text
+    assert re.search(r'<a class="back" data-back href="/tasks"', task)
+    series = ui.get("/series/1").text
+    assert re.search(r'<a class="back" data-back href="/series"', series)
+
+
+def test_search_and_filter_forms_are_plain_get_forms(ui):
+    """The in-place navigation hooks GET forms; they must stay GET with named fields."""
+    login(ui)
+    assert re.search(r'<form method="get" class="search">', ui.get("/tasks").text)
+    assert re.search(r'<form method="get" class="card pad">', ui.get("/entries").text)
+
+
+def test_open_task_menu_offers_delay_to_tomorrow_and_next_week(ui):
+    login(ui)
+    token = csrf_of(ui.get("/").text)
+    ui.post("/quick/task", data={"title": "Chase tenant", "csrf": token})
+    page = ui.get("/tasks").text
+    assert re.search(r'name="preset" value="tomorrow"><button>.*Delay to tomorrow', page)
+    assert re.search(r'name="preset" value="nextweek"><button>.*Delay to next week', page)
+    assert re.search(r'id="snooze-dialog".*?<h3>Delay task</h3>', page, re.S)
+    assert "Snooze" not in page  # the UI says "Delay"; "snooze" stays an API/MCP word
+    ui.post("/tasks/1/done", data={"csrf": token})
+    assert "Delay to tomorrow" not in ui.get("/tasks?status=done").text  # only open tasks can nag

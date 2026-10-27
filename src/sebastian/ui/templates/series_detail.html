@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <div class="grow">
-    <div class="small muted"><a href="/series">Recurring tasks</a></div>
+    <div class="crumbs"><a class="back" data-back href="/series">{{ icon('arrow', 'sm') }} Back</a><a href="/series">Recurring tasks</a></div>
     <h1>{{ s.title }} {% if not s.active %}<span class="pill">archived</span>{% endif %}</h1>
     <div class="sub">{{ s.schedule_text }} · {{ s.tz }}</div>
   </div>

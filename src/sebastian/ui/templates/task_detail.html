@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <div class="grow">
-    <div class="small muted"><a href="/tasks">Tasks</a>{% if t.series_id %} / <a href="/series/{{ t.series_id }}">Recurring series</a>{% endif %}</div>
+    <div class="crumbs"><a class="back" data-back href="/tasks">{{ icon('arrow', 'sm') }} Back</a><a href="/tasks">Tasks</a>{% if t.series_id %} / <a href="/series/{{ t.series_id }}">Recurring series</a>{% endif %}</div>
     <h1>{{ t.title }}</h1>
   </div>
   <div class="actions">

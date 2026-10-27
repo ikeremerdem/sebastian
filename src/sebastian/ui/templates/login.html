@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hidden with context %}
+{% from "_macros.html" import hidden, logo with context %}
 {% block title %}Sebastian · Log in{% endblock %}
 {% block bare %}
 <div class="login-wrap">
   <div class="card login-card">
-    <div class="brand"><span class="mark">S</span> Sebastian</div>
+    <div class="brand">{{ logo(34, 'login') }} Sebastian</div>
     <h1 style="font-size:20px">Welcome back</h1>
     <p class="muted" style="margin:4px 0 20px">At your service.</p>
     {% if not configured %}

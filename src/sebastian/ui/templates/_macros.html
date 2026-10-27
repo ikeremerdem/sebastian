@@ -46,6 +46,30 @@
 </label>
 {% endmacro %}
 
+{# The Sebastian mark: a butler's serving cloche. Same artwork as static/icons/favicon.svg. #}
+{# `uid` keeps the gradient id unique per instance: a gradient defined in a hidden element (the sidebar on phones) will not render for other copies. #}
+{% macro logo(size=28, uid='x') -%}
+<svg class="logo" width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" aria-hidden="true">
+  <defs><linearGradient id="sebg-{{ uid }}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs>
+  <rect width="64" height="64" rx="15" fill="url(#sebg-{{ uid }})"/>
+  <path d="M13 44C13 30 21 21 32 21s19 9 19 23z" fill="#fff"/>
+  <rect x="9" y="43" width="46" height="5" rx="2.5" fill="#fff"/>
+  <circle cx="32" cy="16.5" r="3.6" fill="#fff"/>
+  <path d="M19.5 38c1-6 5-10 9.5-11.2" fill="none" stroke="#6366f1" stroke-opacity=".28" stroke-width="2.4" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{# Type a sentence, get a task: "call dentist tomorrow 9:30". A live preview shows how it is read. #}
+{% macro quickadd_bar() %}
+<form method="post" action="/quick/add" class="quickadd" data-quickadd>
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ here }}">
+  <span class="qa-icon">{{ icon('plus') }}</span>
+  <input name="text" id="quickadd-input" placeholder="Add a task…  try “call dentist tomorrow 9:30” or “pay rent friday”" autocomplete="off" aria-label="Quick add a task" required>
+  <button class="primary">Add</button>
+</form>
+<div class="qa-preview" id="qa-preview" aria-live="polite"></div>
+{% endmacro %}
+
 {% macro hidden(next) %}<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ next }}">{% endmacro %}
 
 {# One task row: done-circle, title/meta, state pills and an actions menu. #}
@@ -94,7 +118,10 @@
         {% if active %}
           <button data-dialog="done-dialog" data-action="/tasks/{{ t.id }}/done" data-next="{{ next }}">{{ icon('check', 'sm') }} Done with note…</button>
           {% if t.status == 'open' %}
-          <button data-dialog="snooze-dialog" data-action="/tasks/{{ t.id }}/snooze" data-next="{{ next }}">{{ icon('moon', 'sm') }} Snooze…</button>
+          <form method="post" action="/tasks/{{ t.id }}/snooze">{{ hidden(next) }}<input type="hidden" name="preset" value="tomorrow"><button>{{ icon('moon', 'sm') }} Delay to tomorrow <small class="faint">9:00</small></button></form>
+          <form method="post" action="/tasks/{{ t.id }}/snooze">{{ hidden(next) }}<input type="hidden" name="preset" value="nextweek"><button>{{ icon('moon', 'sm') }} Delay to next week <small class="faint">Mon 9:00</small></button></form>
+          <form method="post" action="/tasks/{{ t.id }}/snooze">{{ hidden(next) }}<input type="hidden" name="preset" value="1h"><button>{{ icon('moon', 'sm') }} Delay 1 hour</button></form>
+          <button data-dialog="snooze-dialog" data-action="/tasks/{{ t.id }}/snooze" data-next="{{ next }}">{{ icon('moon', 'sm') }} Delay to…</button>
           {% endif %}
           {% if t.state == 'snoozed' %}
           <form method="post" action="/tasks/{{ t.id }}/unsnooze">{{ hidden(next) }}<button>{{ icon('sun', 'sm') }} Wake now</button></form>

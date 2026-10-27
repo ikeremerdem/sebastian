@@ -1,11 +1,16 @@
-{% from "_macros.html" import icon, dialog, hidden, dt_field with context %}
+{% from "_macros.html" import icon, dialog, hidden, dt_field, logo, entry_dialog with context %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#4f46e5">
   <title>{% block title %}Sebastian{% endblock %}</title>
+  <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/static/site.webmanifest">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -14,7 +19,9 @@
 {% else %}
 <div class="shell">
   <aside class="sidebar">
-    <a class="brand" href="/"><span class="mark">S</span> Sebastian</a>
+    <a class="brand" href="/">{{ logo(30, 'side') }} Sebastian</a>
+    <button class="search-btn" data-open-palette aria-label="Search">{{ icon('search', 'sm') }} <span>Search or jump to…</span><kbd>⌘K</kbd></button>
+    <button class="primary new-btn" data-dialog="new-task-dialog">{{ icon('plus', 'sm') }} New task <kbd>N</kbd></button>
     <nav class="nav">
       <a href="/" class="{{ 'on' if nav == '/' }}">{{ icon('today') }} Today
         {% if open_count %}<span class="badge">{{ open_count }}</span>{% endif %}</a>
@@ -33,17 +40,20 @@
   <div class="main">
     <div class="topbar">
       <button class="ghost icon-only" data-nav-toggle aria-label="Menu">{{ icon('menu') }}</button>
-      <a class="brand" style="padding:0" href="/"><span class="mark">S</span> Sebastian</a>
+      <a class="brand" style="padding:0" href="/">{{ logo(28, 'top') }} Sebastian</a>
+      <span class="grow"></span>
+      <button class="ghost icon-only" data-open-palette aria-label="Search">{{ icon('search') }}</button>
     </div>
     <main class="content">{% block content %}{% endblock %}</main>
   </div>
 </div>
 
-{# ---- task action dialogs, shared by every page ---- #}
+{# ---- dialogs shared by every page (inside #dialogs so they refresh with each in-place update) ---- #}
+<div id="dialogs">
 {% call dialog('done-dialog', 'Mark as done', 'Mark done') %}
   <label class="field">Note <span class="hint" style="display:inline">(optional, saved in the task history)</span><input name="note" placeholder="e.g. paid by transfer"></label>
 {% endcall %}
-{% call dialog('snooze-dialog', 'Snooze', 'Snooze', '', 'Nagging pauses, then resumes by itself.') %}
+{% call dialog('snooze-dialog', 'Delay task', 'Delay', '', 'Nagging pauses, then resumes by itself.') %}
   <div class="form-grid">
     <label class="field">For<select name="minutes">{% for m, label in snooze_choices %}<option value="{{ m }}">{{ label }}</option>{% endfor %}</select></label>
     {{ dt_field('until', 'Or until', '', 'Overrides “For”.') }}
@@ -68,10 +78,41 @@
   </div>
   <label class="field">Note <span class="hint" style="display:inline">(optional)</span><input name="note"></label>
 {% endcall %}
+{{ entry_dialog(all_categories) }}
+
+<button class="fab" data-dialog="new-task-dialog" aria-label="New task">{{ icon('plus') }}</button>
+
+<dialog id="palette" class="palette" aria-label="Search and commands">
+  <form method="post" action="/quick/add" id="palette-add" class="hidden">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="">
+    <input type="hidden" name="text" value="">
+  </form>
+  <div class="palette-input">{{ icon('search') }}<input id="palette-q" placeholder="Search tasks and notes, jump to a page, or type a task to add…" autocomplete="off" spellcheck="false"></div>
+  <ul class="palette-list" id="palette-list" role="listbox"></ul>
+  <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+</dialog>
+
+<dialog id="shortcuts-dialog">
+  <div class="dlg-head"><h3>Keyboard shortcuts</h3><p>Available when you are not typing in a field.</p></div>
+  <div class="dlg-body shortcuts">
+    <div><kbd>N</kbd> New task</div><div><kbd>L</kbd> Log an entry</div>
+    <div><kbd>/</kbd> or <kbd>⌘K</kbd> Search &amp; commands</div><div><kbd>?</kbd> This help</div>
+    <div><kbd>G</kbd> <kbd>D</kbd> Today</div><div><kbd>G</kbd> <kbd>T</kbd> Tasks</div>
+    <div><kbd>G</kbd> <kbd>R</kbd> Recurring</div><div><kbd>G</kbd> <kbd>L</kbd> Logs &amp; notes</div>
+    <div><kbd>G</kbd> <kbd>C</kbd> Categories</div><div><kbd>G</kbd> <kbd>S</kbd> Settings</div>
+  </div>
+  <div class="dlg-foot"><button type="button" data-close>Close</button></div>
+</dialog>
+</div>
 {% endif %}
 
-<div class="toasts" id="toasts">
-  {% for kind, msg in flashes %}<div class="toast {{ kind }}">{{ msg }}</div>{% endfor %}
+<div class="progress" id="progress"></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite">
+  {% for kind, msg, undo in flashes %}
+  <div class="toast {{ kind }}"><span>{{ msg }}</span>
+    {% if undo %}<form method="post" action="{{ undo }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ here }}"><button class="undo">Undo</button></form>{% endif %}
+  </div>
+  {% endfor %}
 </div>
 <script src="/static/app.js"></script>
 </body>

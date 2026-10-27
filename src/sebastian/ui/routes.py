@@ -4,13 +4,14 @@ import re
 import secrets
 import time
 from collections import defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
 from pathlib import Path
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from ..clock import utcnow
 from ..config import get_config
 from ..models import Task
 from ..services import entries as entry_svc
+from ..services import quickadd
 from ..services import settings as settings_svc
 from ..services import tasks as task_svc
 from ..services.errors import SebastianError
@@ -50,12 +52,15 @@ def _csrf(request: Request) -> str:
     return request.session["csrf"]
 
 
-def flash(request: Request, message: str, kind: str = "ok") -> None:
-    request.session.setdefault("flash", []).append([kind, message])
+def flash(request: Request, message: str, kind: str = "ok", undo: str | None = None) -> None:
+    """Queue a toast. `undo` is a POST endpoint that reverses the action (shows an Undo button)."""
+    # Reassign (don't append in place): Starlette only re-sends the session cookie when the
+    # session dict itself is assigned to, so an in-place append to a pending list was lost.
+    request.session["flash"] = [*request.session.get("flash", []), [kind, message, undo]]
 
 
-def _shell_context(request: Request) -> tuple[int, str]:
-    """(open un-snoozed task count for the sidebar badge, next quarter-hour in local time)."""
+def _shell_context(request: Request) -> tuple[int, str, list]:
+    """(sidebar badge count, next quarter-hour in local time, active categories)."""
     gen = request.app.state.db.session()
     session = next(gen)
     try:
@@ -69,16 +74,18 @@ def _shell_context(request: Request) -> tuple[int, str]:
         local = now.astimezone(settings_svc.get_effective(session).tz)
         slot = (local.hour * 60 + local.minute) // 15 + 1
         nxt = TIME_SLOTS[slot % 96]
-        return count, nxt
+        cats = [{"name": c.name} for c, _ in entry_svc.list_categories(session)]
+        return count, nxt, cats
     finally:
         session.close()
 
 
 def render(request: Request, name: str, **ctx):
-    msgs = request.session.pop("flash", [])
+    msgs = [(list(m) + [None])[:3] for m in request.session.pop("flash", [])]
     base = {
         "csrf": _csrf(request),
         "flashes": msgs,
+        "here": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         "nav": request.url.path,
         "snooze_choices": SNOOZE_CHOICES,
         "weekdays": list(
@@ -106,9 +113,10 @@ def render(request: Request, name: str, **ctx):
         "time_slots": TIME_SLOTS,
         "open_count": 0,
         "now_slot": "09:00",
+        "all_categories": [],
     }
     if authed(request):
-        base["open_count"], base["now_slot"] = _shell_context(request)
+        base["open_count"], base["now_slot"], base["all_categories"] = _shell_context(request)
     return templates.TemplateResponse(request, name, {**base, **ctx})
 
 
@@ -230,9 +238,10 @@ async def run_action(request: Request, default_next: str, fn):
     """Common POST handling: run fn(form) and flash the result or the domain error."""
     form = await request.form()
     try:
-        message = fn(form)
+        result = fn(form)
+        message, undo = result if isinstance(result, tuple) else (result, None)
         if message:
-            flash(request, message)
+            flash(request, message, undo=undo)
     except SebastianError as exc:
         text = exc.message
         if exc.extra.get("valid_categories"):
@@ -240,6 +249,21 @@ async def run_action(request: Request, default_next: str, fn):
             text += f" (valid: {names})"
         flash(request, text, "error")
     return back(request, form, default_next)
+
+
+# ------------------------------------------------------------------------ icons
+
+_STATIC = Path(__file__).parent / "static"
+
+
+@router.get("/favicon.ico")
+def favicon():
+    return FileResponse(_STATIC / "icons" / "favicon.ico", media_type="image/x-icon")
+
+
+@router.get("/apple-touch-icon.png")
+def apple_touch_icon():
+    return FileResponse(_STATIC / "icons" / "apple-touch-icon.png", media_type="image/png")
 
 
 # ----------------------------------------------------------------------- login
@@ -294,6 +318,79 @@ def _eff_now(session):
     return settings_svc.get_effective(session), utcnow()
 
 
+def _month_count(session, category: str, eff) -> int:
+    """How many entries this calendar month (local) the category has."""
+    today = local_date(utcnow(), eff.tz)
+    res = entry_svc.summary(
+        session, category=category, start=today.replace(day=1), end=today, group_by="none"
+    )
+    return res["categories"][0]["total_entries"] if res["categories"] else 0
+
+
+def _snooze_target(preset: str, now, tz):
+    """'1h' | '3h' | 'tomorrow' | 'nextweek' -> (minutes, until)."""
+    if preset in ("1h", "3h"):
+        return int(preset[0]) * 60, None
+    local = now.astimezone(tz)
+    if preset == "tomorrow":
+        day = local.date() + timedelta(days=1)
+    elif preset == "nextweek":
+        day = local.date() + timedelta(days=7 - local.weekday())  # next Monday
+    else:
+        raise SebastianError(f"unknown snooze preset {preset!r}")
+    return None, datetime.combine(day, dtime(9, 0), tzinfo=tz).astimezone(UTC)
+
+
+def group_tasks(tasks: list[dict], status: str, tz, now) -> list[tuple[str | None, list[dict]]]:
+    """Group a task list the way people scan it: by when it's due (or when it was closed)."""
+    if status in ("all", "waiting") or not tasks:
+        return [(None, tasks)] if tasks else []
+    today = local_date(now, tz)
+    buckets: dict[str, list[dict]] = {}
+
+    def add(label: str, t: dict) -> None:
+        buckets.setdefault(label, []).append(t)
+
+    for t in tasks:
+        if status in ("done", "skipped"):
+            day = local_date(t["done_at"], tz) if t["done_at"] else today
+            delta = (today - day).days
+            label = (
+                "Today"
+                if delta == 0
+                else "Yesterday"
+                if delta == 1
+                else ("This week" if delta < 7 else "Earlier")
+            )
+        elif t["state"] == "snoozed":
+            label = "Delayed"
+        else:
+            delta = (local_date(t["due_at"], tz) - today).days
+            label = (
+                "Overdue"
+                if delta < 0
+                else "Today"
+                if delta == 0
+                else "Tomorrow"
+                if delta == 1
+                else "This week"
+                if delta < 7
+                else "Later"
+            )
+        add(label, t)
+    order = [
+        "Overdue",
+        "Today",
+        "Delayed",
+        "Tomorrow",
+        "Yesterday",
+        "This week",
+        "Later",
+        "Earlier",
+    ]
+    return [(k, buckets[k]) for k in order if k in buckets]
+
+
 @page.get("/")
 def today(request: Request, session: Session = Depends(get_session)):
     eff, now = _eff_now(session)
@@ -302,7 +399,11 @@ def today(request: Request, session: Session = Depends(get_session)):
         k: [sc.task_out(t, eff, now) for t in d[k]]
         for k in ("overdue", "today", "snoozed", "upcoming")
     }
-    cats = [c for c, _ in entry_svc.list_categories(session) if c.name_key != "note"]
+    cats = [
+        {"name": c.name, "description": c.description, "month": _month_count(session, c.name, eff)}
+        for c, _ in entry_svc.list_categories(session)
+        if c.name_key != "note"
+    ]
     local_now = now.astimezone(eff.tz)
     hour = local_now.hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
@@ -336,6 +437,66 @@ async def quick_task(request: Request, session: Session = Depends(get_session)):
     return await run_action(request, "/", go)
 
 
+@page.get("/quick/preview")
+def quick_preview(text: str = "", session: Session = Depends(get_session)):
+    """How quick-add would read this text, shown live under the input."""
+    eff, now = _eff_now(session)
+    text = " ".join(text.split())
+    if not text:
+        return JSONResponse({"title": "", "when": None})
+    p = quickadd.parse(text, now, eff.tz)
+    return JSONResponse(
+        {"title": p.title, "when": sc.human_when(p.due, eff.tz, now) if p.due else "now"}
+    )
+
+
+@page.get("/search.json")
+def search_json(q: str = "", session: Session = Depends(get_session)):
+    """Global search for the command palette: tasks, logs/notes and recurring series."""
+    eff, now = _eff_now(session)
+    q = q.strip()
+    if len(q) < 2:
+        return JSONResponse({"results": []})
+    out = []
+    for t in task_svc.list_tasks(session, status="all", text=q, limit=6):
+        o = sc.task_out(t, eff, now)
+        sub_ = o["due_human"] if o["status"] in ("open", "waiting") else o["status"]
+        out.append({"group": "Tasks", "title": o["title"], "sub": sub_, "url": f"/tasks/{t.id}"})
+    needle = q.casefold()
+    for s_ in task_svc.list_series(session):
+        if needle in s_.title.casefold():
+            out.append(
+                {"group": "Recurring", "title": s_.title, "sub": "", "url": f"/series/{s_.id}"}
+            )
+    for e in entry_svc.list_entries(session, q=q, limit=5):
+        out.append(
+            {
+                "group": "Logs & notes",
+                "title": e.text or e.category.name,
+                "sub": f"{e.category.name} · {sc.fmt_local(e.created_at, eff.tz)}",
+                "url": f"/entries?q={q}",
+            }
+        )
+    return JSONResponse({"results": out})
+
+
+@page.post("/quick/add")
+async def quick_add(request: Request, session: Session = Depends(get_session)):
+    """One text box: 'call dentist tomorrow 9:30' -> a task with a due time."""
+    eff, now = _eff_now(session)
+
+    def go(f):
+        text = " ".join(str(f.get("text", "")).split())
+        if not text:
+            raise SebastianError("type what you need to do")
+        parsed = quickadd.parse(text, now, eff.tz)
+        task = task_svc.create_task(session, title=parsed.title, due_at=parsed.due)
+        when = sc.human_when(task.due_at, eff.tz, now)
+        return f"Added “{task.title}” · {when}", f"/tasks/{task.id}/delete"
+
+    return await run_action(request, "/", go)
+
+
 @page.post("/quick/entry")
 async def quick_entry(request: Request, session: Session = Depends(get_session)):
     eff = settings_svc.get_effective(session)
@@ -347,7 +508,8 @@ async def quick_entry(request: Request, session: Session = Depends(get_session))
             text=opt_str(f.get("text")),
             at=form_dt(f, "at", eff.tz),
         )
-        return f"Logged in {e.category.name}."
+        n = _month_count(session, e.category.name, eff)
+        return f"Logged · {e.category.name} ({n} this month)", f"/entries/{e.id}/delete"
 
     return await run_action(request, "/", go)
 
@@ -364,10 +526,12 @@ def tasks_page(
     rows = task_svc.list_tasks(
         session, status=status, text=q or None, series_id=series_id, limit=300
     )
+    tasks = [sc.task_out(t, eff, now) for t in rows]
     return render(
         request,
         "tasks.html",
-        tasks=[sc.task_out(t, eff, now) for t in rows],
+        tasks=tasks,
+        groups=group_tasks(tasks, status, eff.tz, now),
         status=status,
         q=q,
         series_id=series_id,
@@ -406,18 +570,25 @@ async def task_action(
         note = opt_str(f.get("note"))
         if action == "done":
             task_svc.complete_task(session, task_id, note)
-            return "Marked done."
+            return "Marked done.", f"/tasks/{task_id}/reopen"
         if action == "skip":
             task_svc.skip_task(session, task_id, note)
-            return "Skipped."
+            return "Skipped.", f"/tasks/{task_id}/reopen"
         if action == "snooze":
-            until = form_dt(f, "until", eff.tz)
-            minutes = opt_int(f.get("minutes")) if until is None else None
-            task_svc.snooze_task(session, task_id, until=until, minutes=minutes, note=note)
-            return "Snoozed."
+            now = utcnow()
+            if preset := opt_str(f.get("preset")):
+                minutes, until = _snooze_target(preset, now, eff.tz)
+            else:
+                until = form_dt(f, "until", eff.tz)
+                minutes = opt_int(f.get("minutes")) if until is None else None
+            t = task_svc.snooze_task(session, task_id, until=until, minutes=minutes, note=note)
+            return (
+                f"Delayed until {sc.human_when(t.snooze_until, eff.tz, now)}",
+                f"/tasks/{task_id}/unsnooze",
+            )
         if action == "unsnooze":
             task_svc.unsnooze_task(session, task_id, note)
-            return "Snooze cleared."
+            return "Delay cleared."
         if action in ("note", "remark"):  # "remark" is the pre-0.1.3 name
             task_svc.add_remark(session, task_id, note or "")
             return "Note added."
@@ -440,7 +611,7 @@ async def task_action(
         raise SebastianError(f"unknown action {action!r}")
 
     resp = await run_action(request, f"/tasks/{task_id}", go)
-    if action == "delete" and not any(k == "error" for k, _ in request.session.get("flash", [])):
+    if action == "delete" and not any(m[0] == "error" for m in request.session.get("flash", [])):
         form = await request.form()
         dest = safe_next(form.get("next"), "/tasks")
         # never bounce back to the page of the task we just deleted

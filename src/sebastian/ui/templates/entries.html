@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, dialog, hidden, empty, entry_dialog with context %}
+{% from "_macros.html" import icon, dialog, hidden, empty with context %}
 {% block title %}Sebastian · Logs & notes{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -57,7 +57,6 @@
   </div>
 </section>
 
-{{ entry_dialog(categories) }}
 {% call dialog('entry-edit-dialog', 'Edit entry', 'Save') %}
   <label class="field">Category<select name="category" data-value="category">{% for c in categories %}<option>{{ c.name }}</option>{% endfor %}</select></label>
   <label class="field">Text<input name="text" data-value="text"></label>

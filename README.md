@@ -339,16 +339,26 @@ ssh -N -L 8000:127.0.0.1:8000 pi        # then open http://localhost:8000
 [Tailscale](https://tailscale.com/) works too: `sudo tailscale serve --bg 8000` on the Pi gives an HTTPS URL on your
 tailnet without exposing a port to the internet.
 
-The UI is a responsive app (light and dark, phone-friendly):
+The UI is a responsive app (light and dark, phone-friendly, installable from the browser's "Add to Home Screen").
+Pages update in place, so there are no full reloads and your scroll position is kept.
 
-- **Today**: stat tiles (overdue / due today / snoozed / coming up), grouped task rows with a one-click done circle,
-  one-tap logging for your categories and a quick-note box.
-- **Tasks**: filter by status, search, and per-task actions in a "⋯" menu: *Done with note*, *Snooze*, *Skip*,
-  *Add remark*, *Reopen* and **Delete**. Notes are entered in dialogs; everything is also available from the task's detail page.
-- **Recurring**: a repeat picker (monthly day or "last day", weekdays, daily, yearly, or a custom RRULE) with
-  readable schedules like "Every month on day 5 · 09:00".
-- **Logs & notes**: add, filter, search and summarise (entries and distinct days per week/month/year).
-- **Categories**: descriptions for the agent, merge and archive. **Settings**: timezone, nag interval, quiet hours.
+- **Quick add:** type a sentence in the bar on Today or Tasks, e.g. `call dentist tomorrow 9:30`, `pay rent friday`,
+  `in 2 hours check the oven`, `renew passport 5 nov`, `gym next monday 18:00`. A live preview shows how it is read
+  (title and due time) before you press Enter. Anything it doesn't recognise stays in the title; with no date the task is
+  due now. Dates are read in your timezone; `d/m` and `d.m.` are day-first.
+- **Undo:** done, skip, delay, delete-by-undo of a quick add and logging all show a toast with an **Undo** button
+  for about 8 seconds. Form errors appear inside the dialog, with what you typed kept.
+- **Search and commands (⌘K / Ctrl+K, or `/`):** finds tasks, recurring series and notes, jumps to any page, and can add a task
+  from whatever you typed.
+- **Keyboard:** `N` new task, `L` log an entry, `G` then `D`/`T`/`R`/`L`/`C`/`S` to go to Today/Tasks/Recurring/Logs/Categories/Settings,
+  `?` for the list. (Shortcuts are off while you type in a field.)
+- **Today:** stat tiles, grouped task rows with a one-click done circle, a note button and a "⋯" menu (done with note, delay
+  to tomorrow / next week / 1 hour / pick a time, skip, add note, delete; "delay" is the UI word for the API's `snooze`), plus one-tap logging tiles that show this month's count.
+- **Tasks:** grouped by when they're due (Overdue, Today, Tomorrow, This week, Later; closed tasks by when you closed them),
+  filter by status, search.
+- **Recurring:** a repeat picker (monthly day or "last day", weekdays, daily, yearly, or a custom RRULE) with readable
+  schedules like "Every month on day 5 · 09:00".
+- **Logs & notes**, **Categories** (descriptions for the agent, merge/archive) and **Settings** (timezone, nag interval, quiet hours).
 
 Deleting a task is permanent. For a recurring occurrence it removes that occurrence only; the series carries on and
 the deleted one is not regenerated. Prefer *Skip* when you want a record that it didn't happen.
@@ -370,6 +380,9 @@ tests/             pytest (frozen-clock tests for recurrence, nagging and summar
   (it uses `SEBASTIAN_DATABASE_PATH`; point it at a throwaway DB at head). Review the generated file, keep it additive,
   and add `import sebastian.db` if it references `UTCDateTime`.
 - **Time in tests:** use `freezegun.freeze_time`; the app reads time through `sebastian.clock.utcnow`.
+- **Icons:** the logo is a serving cloche. `src/sebastian/ui/static/icons/favicon.svg` is the source of truth; run
+  `uv run python scripts/make_icons.py` to re-render the PNG and `.ico` set (Pillow only) after changing it, and keep the
+  `logo` macro in `ui/templates/_macros.html` in sync.
 - **Release:** all tests green → `./scripts/verify-deploy.sh` → bump `version` in `pyproject.toml` → merge → tag `vX.Y.Z` → push
   tag → `deploy.sh vX.Y.Z` on the Pi.
 
