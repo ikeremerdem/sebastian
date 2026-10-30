@@ -134,7 +134,7 @@ Values containing `$` (the password hash) should be wrapped in single quotes.
 Timezone, default nag interval and quiet hours can also be changed later in the UI (**Settings**) or via
 `PATCH /api/v1/settings`; those values override the env defaults.
 
-CLI: `sebastian serve | migrate | genkey | hash-password | backup --to DIR [--keep N]`.
+CLI: `sebastian serve | migrate | genkey | hash-password | backup --to DIR [--keep N] [--offsite GIT_CLONE]`.
 
 ## 4. API and MCP
 
@@ -254,6 +254,56 @@ and the rollback works.
 - Manual backup: `sudo -u sebastian /opt/sebastian/.venv/bin/sebastian backup --to /var/lib/sebastian/backups`.
 - Copy backups off the Pi occasionally, e.g. from your Mac:
   `rsync -a pi:/var/lib/sebastian/backups/ ~/Backups/sebastian/` (an SD card is not a backup).
+- **Off-site copy in a private GitHub repo** (simplest option, see below), or pull the backups to a NAS/Mac with `rsync`.
+
+### Off-site backup to a private GitHub repo
+
+After the nightly backup, `sebastian backup --offsite DIR` writes a plain-SQL dump (`sebastian.sql`) into a git clone
+and pushes it. Text dumps compress and diff well, so a personal task database stays tiny even after years of nightly
+commits, and git history gives you point-in-time recovery. A night with no changes makes no commit. It is skipped
+silently until you set it up, so nothing changes for installs that don't use it.
+
+The dump contains your tasks, notes and log entries (not the API key, session secret or UI password), so use a
+**private** repo. Setup, once, on the Pi:
+
+1. Create an empty **private** repo on GitHub, e.g. `sebastian-backup`.
+2. Create a key for it and add the public half under the repo's *Settings → Deploy keys* with **Allow write access**
+   (a deploy key can only touch that one repo):
+   ```bash
+   sudo -u sebastian install -d -m 700 /var/lib/sebastian/.ssh
+   sudo -u sebastian ssh-keygen -t ed25519 -N "" -C sebastian-backup -f /var/lib/sebastian/.ssh/offsite
+   sudo cat /var/lib/sebastian/.ssh/offsite.pub
+   ```
+3. Clone it where the backup job expects it, and tell git which key to use:
+   ```bash
+   sudo -u sebastian git clone \
+     -c core.sshCommand="ssh -i /var/lib/sebastian/.ssh/offsite -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+     git@github.com:<you>/sebastian-backup.git /var/lib/sebastian/offsite
+   sudo -u sebastian git -C /var/lib/sebastian/offsite config user.name "Sebastian backup"
+   sudo -u sebastian git -C /var/lib/sebastian/offsite config user.email "sebastian@localhost"
+   ```
+4. After deploying a release that has this feature, refresh the unit and try it:
+   ```bash
+   sudo /opt/sebastian/deploy/install.sh
+   sudo systemctl start sebastian-backup.service
+   systemctl status sebastian-backup.service --no-pager      # look for "offsite: pushed"
+   ```
+If the push fails (no network, key removed), the local backup is still made and the unit shows as *failed* in
+`systemctl status sebastian-backup`; `journalctl -u sebastian-backup` has the reason.
+
+**Restore from GitHub** (on the Pi, or anywhere):
+
+```bash
+git clone git@github.com:<you>/sebastian-backup.git && cd sebastian-backup
+git log --oneline                    # pick a night, then: git checkout <commit>
+sqlite3 /tmp/restored.db < sebastian.sql
+# or without the sqlite3 CLI:
+python3 -c "import sqlite3; sqlite3.connect('/tmp/restored.db').executescript(open('sebastian.sql').read())"
+sudo systemctl stop sebastian
+sudo -u sebastian cp /tmp/restored.db /var/lib/sebastian/sebastian.db
+sudo rm -f /var/lib/sebastian/sebastian.db-wal /var/lib/sebastian/sebastian.db-shm
+sudo systemctl start sebastian
+```
 
 **Restore** a backup:
 

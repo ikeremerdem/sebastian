@@ -15,6 +15,11 @@ def main(argv: list[str] | None = None) -> int:
     backup = sub.add_parser("backup", help="consistent SQLite backup, pruning old copies")
     backup.add_argument("--to", required=True, help="backup directory")
     backup.add_argument("--keep", type=int, default=14, help="how many backups to keep")
+    backup.add_argument(
+        "--offsite",
+        metavar="GIT_CLONE",
+        help="also commit a SQL dump to this git clone and push (skipped if not a clone)",
+    )
     args = parser.parse_args(argv)
 
     if args.cmd == "genkey":
@@ -37,9 +42,16 @@ def main(argv: list[str] | None = None) -> int:
         upgrade_to_head()
         return 0
     if args.cmd == "backup":
-        from .backup import backup_database
+        from .backup import OffsiteError, backup_database, push_offsite
 
-        print(backup_database(args.to, args.keep))
+        target = backup_database(args.to, args.keep)
+        print(target)
+        if args.offsite:
+            try:
+                print(push_offsite(target, args.offsite))
+            except (OffsiteError, OSError) as exc:
+                print(f"OFFSITE BACKUP FAILED: {exc}", file=sys.stderr)
+                return 2  # the local backup above is fine; the failure shows in `systemctl status`
         return 0
 
     import uvicorn
